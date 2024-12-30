@@ -482,7 +482,7 @@ def _launch_demo(llm, model_config, sampling_params, tokenizer, feature_extracto
 
     server_port = 18806
     demo.launch(
-        share=False,
+        share=True,  # True/False
         debug=True,
         server_name="0.0.0.0",
         server_port=server_port,
