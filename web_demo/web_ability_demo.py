@@ -8,6 +8,7 @@ import re
 import torchaudio
 import io
 import cv2
+import time
 from vita.constants import DEFAULT_AUDIO_TOKEN, DEFAULT_IMAGE_TOKEN, MAX_IMAGE_LENGTH, MIN_IMAGE_LENGTH
 from vita.conversation import conv_templates, SeparatorStyle
 from vita.util.mm_utils import tokenizer_image_token, tokenizer_image_audio_token 
@@ -402,6 +403,7 @@ def _launch_demo(llm, model_config, sampling_params, tokenizer, feature_extracto
             yield None,None
         llm_resounse = replace_equation(remove_special_characters(text))
         #print('tts_text', llm_resounse)
+        start_time = time.time()
         for idx, text in enumerate(split_into_sentences(llm_resounse)):
             embeddings = llm_embedding(torch.tensor(tokenizer.encode(text)).to(device))
             for seg in tts.run(embeddings.reshape(-1, 896).unsqueeze(0), decoder_topk,
@@ -495,6 +497,8 @@ def main(model_path):
 
 
     llm_embedding = load_model_embemding(model_path).to(device)
+    os.system('nvidia-smi')
+    print('load_model_embemding done')
     llm = LLM(
         model=model_path,
         dtype="float16",
@@ -504,12 +508,18 @@ def main(model_path):
         disable_custom_all_reduce=True,
         limit_mm_per_prompt={'image':256,'audio':50}
     )  
+    os.system('nvidia-smi')
+    print('LLM done')
 
     model_config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
     sampling_params = SamplingParams(temperature=0.01, max_tokens=512, best_of=1, skip_special_tokens=False)
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     feature_extractor = AutoFeatureExtractor.from_pretrained(model_path, subfolder="feature_extractor", trust_remote_code=True)
+    os.system('nvidia-smi')
+    print('feature_extractor done')
     tts = llm2TTS(os.path.join(model_path, 'vita_tts_ckpt/'))
+    os.system('nvidia-smi')
+    print('llm2TTS done')
     _launch_demo(llm, model_config, sampling_params, tokenizer, feature_extractor, tts, llm_embedding)
 
 if __name__ == '__main__':

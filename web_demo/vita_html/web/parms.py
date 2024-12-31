@@ -6,7 +6,7 @@ from web_demo.wakeup_and_vad.wakeup_and_vad import WakeupAndVAD
 
 class GlobalParams:
     def __init__(self):
-        self.wakeup_and_vad = WakeupAndVAD("./web_demo/wakeup_and_vad/resource", cache_history=10)
+        self.wakeup_and_vad = WakeupAndVAD("./web_demo/wakeup_and_vad/resources", cache_history=10)
         self.interrupt_signal = 1
         self.collected_images = deque(maxlen=8)  # 存储最近8帧图像
         self.last_image_time = time.time()  # 记录最后一帧图像的时间

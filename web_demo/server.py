@@ -33,6 +33,9 @@ from web_demo.vita_html.web.parms import GlobalParams
 from web_demo.vita_html.web.pem import generate_self_signed_cert
 from vita.model.language_model.vita_qwen2 import VITAQwen2Config, VITAQwen2ForCausalLM
 
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 def get_args():
     parser = argparse.ArgumentParser(description='VITA')
@@ -161,20 +164,21 @@ def load_model(
         outputs_queue,
         tts_outputs_queue,
         stop_event,
-        other_stop_event,
+        # other_stop_event,
         worker_ready,
         wait_workers_ready,
         start_event,
-        other_start_event,
+        # other_start_event,
         start_event_lock,
         global_history,
         global_history_limit=0,
     ):
     #等待tts初始化
     print(wait_workers_ready,'wait_workers_readywait_workers_readywait_workers_ready')
-    wait_workers_ready[1].wait()
+    wait_workers_ready[0].wait()  # wait_workers_ready[1].wait()
     print(wait_workers_ready,'wait_workers_readywait_workers_ready')
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
+    print(f"Setting CUDA_VISIBLE_DEVICES to {cuda_devices}")
     llm = LLM(
             model=engine_args,
             dtype="float16",
@@ -184,6 +188,8 @@ def load_model(
             disable_custom_all_reduce=True,
             limit_mm_per_prompt={'image':256,'audio':50}
         )
+    os.system('nvidia-smi')
+    print('LLM done', llm_id)
 
     tokenizer = AutoTokenizer.from_pretrained(engine_args, trust_remote_code=True)
     feature_extractor = AutoFeatureExtractor.from_pretrained(engine_args, subfolder="feature_extractor", trust_remote_code=True)
@@ -344,7 +350,7 @@ def load_model(
                 if start_event.is_set():
                     inputs = inputs_queue.get()
 
-                    other_start_event.set()
+                    # other_start_event.set()
                     start_event.clear()
                 else:
                     continue
@@ -393,7 +399,7 @@ def load_model(
                         if is_first_time_to_work:
                             print(f"Process {cuda_devices} is about to interrupt other process")
                             stop_event.clear()
-                            other_stop_event.set()
+                            # other_stop_event.set()
                             clear_queue(outputs_queue)
                             clear_queue(tts_outputs_queue)
                             is_first_time_to_work = False
@@ -538,7 +544,11 @@ def tts_worker(
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     llm_embedding = load_model_embemding(model_path).to(device)
+    os.system('nvidia-smi')
+    print('load_model_embemding done')
     tts = llm2TTS(os.path.join(model_path, 'vita_tts_ckpt/'))
+    os.system('nvidia-smi')
+    print('llm2TTS done')
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
 
@@ -944,16 +954,16 @@ if __name__ == "__main__":
     tts_output_queue = manager.Queue() 
 
     worker_1_stop_event = manager.Event() 
-    worker_2_stop_event = manager.Event() 
+    # worker_2_stop_event = manager.Event() 
 
     worker_1_start_event = manager.Event() 
-    worker_2_start_event = manager.Event()
+    # worker_2_start_event = manager.Event()
     worker_1_start_event.set()
 
     worker_1_2_start_event_lock = manager.Lock()
 
     llm_worker_1_ready = manager.Event()
-    llm_worker_2_ready = manager.Event()
+    # llm_worker_2_ready = manager.Event()
 
     tts_worker_ready = manager.Event()
     gradio_worker_ready = manager.Event()
@@ -970,7 +980,7 @@ if __name__ == "__main__":
             "inputs_queue": tts_inputs_queue,
             "outputs_queue": tts_output_queue,
             "worker_ready": tts_worker_ready,
-            "wait_workers_ready": [llm_worker_1_ready, llm_worker_2_ready],
+            "wait_workers_ready": [llm_worker_1_ready],  # [llm_worker_1_ready, llm_worker_2_ready]
         }
     )
 
@@ -984,41 +994,41 @@ if __name__ == "__main__":
             "outputs_queue": tts_inputs_queue,
             "tts_outputs_queue": tts_output_queue,
             "start_event": worker_1_start_event,
-            "other_start_event": worker_2_start_event,
+            # "other_start_event": worker_2_start_event,
             "start_event_lock": worker_1_2_start_event_lock,
             "stop_event": worker_1_stop_event,
-            "other_stop_event": worker_2_stop_event,
+            # "other_stop_event": worker_2_stop_event,
             "worker_ready": llm_worker_1_ready,
-            "wait_workers_ready": [llm_worker_2_ready, tts_worker_ready], 
+            "wait_workers_ready": [tts_worker_ready],  # [llm_worker_2_ready, tts_worker_ready]
             "global_history": global_history,
             "global_history_limit": global_history_limit,
         }
     )
 
-    model_2_process = multiprocessing.Process(
-        target=load_model,
-        kwargs={
-            "llm_id": 2,
-            "engine_args": args.model_path,
-            "cuda_devices": "1",
-            "inputs_queue": request_inputs_queue,
-            "outputs_queue": tts_inputs_queue,
-            "tts_outputs_queue": tts_output_queue,
-            "start_event": worker_2_start_event,
-            "other_start_event": worker_1_start_event,
-            "start_event_lock": worker_1_2_start_event_lock,
-            "stop_event": worker_2_stop_event,
-            "other_stop_event": worker_1_stop_event,
-            "worker_ready": llm_worker_2_ready,
-            "wait_workers_ready": [llm_worker_1_ready, tts_worker_ready], 
-            "global_history": global_history,
-            "global_history_limit": global_history_limit,
-        }
-    )
+    # model_2_process = multiprocessing.Process(
+    #     target=load_model,
+    #     kwargs={
+    #         "llm_id": 2,
+    #         "engine_args": args.model_path,
+    #         "cuda_devices": "1",
+    #         "inputs_queue": request_inputs_queue,
+    #         "outputs_queue": tts_inputs_queue,
+    #         "tts_outputs_queue": tts_output_queue,
+    #         "start_event": worker_2_start_event,
+    #         "other_start_event": worker_1_start_event,
+    #         "start_event_lock": worker_1_2_start_event_lock,
+    #         "stop_event": worker_2_stop_event,
+    #         "other_stop_event": worker_1_stop_event,
+    #         "worker_ready": llm_worker_2_ready,
+    #         "wait_workers_ready": [llm_worker_1_ready, tts_worker_ready], 
+    #         "global_history": global_history,
+    #         "global_history_limit": global_history_limit,
+    #     }
+    # )
 
     # 3. 启动进程
     model_1_process.start()
-    model_2_process.start()
+    # model_2_process.start()
     tts_worker_process.start()
 
     # 4. 将多进程资源添加到 Flask app context
@@ -1026,16 +1036,16 @@ if __name__ == "__main__":
     app.config['TTS_QUEUE'] = tts_inputs_queue
     app.config['TTS_OUTPUT_QUEUE'] = tts_output_queue
     app.config['WORKER_1_STOP'] = worker_1_stop_event
-    app.config['WORKER_2_STOP'] = worker_2_stop_event
+    # app.config['WORKER_2_STOP'] = worker_2_stop_event
     app.config['WORKER_1_START'] = worker_1_start_event
-    app.config['WORKER_2_START'] = worker_2_start_event
+    # app.config['WORKER_2_START'] = worker_2_start_event
     app.config['START_LOCK'] = worker_1_2_start_event_lock
     app.config['WORKER_1_READY'] = llm_worker_1_ready
-    app.config['WORKER_2_READY'] = llm_worker_2_ready
+    # app.config['WORKER_2_READY'] = llm_worker_2_ready
     app.config['TTS_READY'] = tts_worker_ready
     app.config['GLOBAL_HISTORY'] = global_history
     app.config['MODEL_1_PROCESS'] = model_1_process
-    app.config['MODEL_2_PROCESS'] = model_2_process
+    # app.config['MODEL_2_PROCESS'] = model_2_process
     app.config['TTS_WORKER_PROCESS'] = tts_worker_process
 
     # 5. 启动 Flask 应用
@@ -1047,5 +1057,5 @@ if __name__ == "__main__":
 
     # 6. 等待进程结束
     model_1_process.join()
-    model_2_process.join()
+    # model_2_process.join()
     tts_worker_process.join()
