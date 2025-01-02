@@ -68,7 +68,7 @@ args = get_args()
 decoder_topk = 2
 codec_padding_size = 10
 target_sample_rate = 16000
-last_tts_model_id = 0
+last_tts_model_id = 1  # 0
 
 IMAGE_TOKEN_INDEX = 51000
 AUDIO_TOKEN_INDEX = 51001
@@ -188,7 +188,7 @@ def load_model(
             disable_custom_all_reduce=True,
             limit_mm_per_prompt={'image':256,'audio':50}
         )
-    os.system('nvidia-smi')
+    # os.system('nvidia-smi')
     print('LLM done', llm_id)
 
     tokenizer = AutoTokenizer.from_pretrained(engine_args, trust_remote_code=True)
@@ -349,10 +349,11 @@ def load_model(
             with start_event_lock:
                 if start_event.is_set():
                     inputs = inputs_queue.get()
-
+                    print(f"Worker {llm_id} processing new input")
                     # other_start_event.set()
-                    start_event.clear()
+                    # start_event.clear()
                 else:
+                    # print(f"Worker {llm_id} waiting for start event")
                     continue
             
             inputs = _process_inputs(inputs)
@@ -544,10 +545,10 @@ def tts_worker(
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     llm_embedding = load_model_embemding(model_path).to(device)
-    os.system('nvidia-smi')
+    # os.system('nvidia-smi')
     print('load_model_embemding done')
     tts = llm2TTS(os.path.join(model_path, 'vita_tts_ckpt/'))
-    os.system('nvidia-smi')
+    # os.system('nvidia-smi')
     print('llm2TTS done')
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
@@ -842,6 +843,10 @@ def handle_audio(data):
     sid = request.sid
     if sid in connected_users:
         try:
+            # # 添加队列状态日志
+            # print(f"Request queue size: {current_app.config['REQUEST_QUEUE'].qsize()}")
+            # print(f"TTS output queue size: {current_app.config['TTS_OUTPUT_QUEUE'].qsize()}")
+            
             if not current_app.config['TTS_OUTPUT_QUEUE'].empty():
                 connected_users[sid][0].cancel()
                 connected_users[sid][0] = Timer(args.timeout, disconnect_user, [sid])
