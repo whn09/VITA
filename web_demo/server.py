@@ -608,10 +608,10 @@ def tts_worker(
         if tts_input_text.strip() == "":
             continue
 
-        if '$$FIRST_SENTENCE_MARK$$' in  tts_input_text.strip():
+        if '$$FIRST_SENTENCE_MARK$$' in tts_input_text.strip():
             codec_chunk_size = 20
             seg_threshold = 0.1
-            tts_input_text = tts_input_text.replace('$$FIRST_SENTENCE_MARK$$', '').replace('，', '。').replace(',', '。')
+            tts_input_text = tts_input_text.replace('$$FIRST_SENTENCE_MARK$$', '').replace('，', '。').replace(',', '。').replace('$$COMMA_SENTENCE_MARK$$', '')
             IS_FIRST_SENTENCE = True
         else:
             codec_chunk_size = 40
