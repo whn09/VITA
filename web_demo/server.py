@@ -179,10 +179,6 @@ def load_model(
     wait_workers_ready[1].wait()
     print(wait_workers_ready,'wait_workers_readywait_workers_ready')
     
-    # if llm_id != 1:  # debug
-    #     wait_workers_ready[0].wait()
-    #     print(wait_workers_ready,'wait_workers_ready0wait_workers_ready0')
-    
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
     print(f"Setting CUDA_VISIBLE_DEVICES to {cuda_devices}")
         
@@ -439,6 +435,7 @@ def load_model(
 
 def tts_worker(
     model_path,
+    cuda_devices,
     inputs_queue,
     outputs_queue,
     worker_ready,
@@ -554,6 +551,14 @@ def tts_worker(
         sentence = re.sub(r'\(?(\w+)\)?\^\(?(\w+)\)?', r'\1的\2次方', sentence)
         
         return sentence
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
+    print(f"Setting CUDA_VISIBLE_DEVICES to {cuda_devices}")
+        
+    print(f"Process tts_worker CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    print(f"Process tts_worker available devices: {torch.cuda.device_count()}")
+    print(f"Process tts_worker current device: {torch.cuda.current_device()}")
+    print(f"Process tts_worker device name: {torch.cuda.get_device_name(0)}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     llm_embedding = load_model_embemding(model_path).to(device)
@@ -995,6 +1000,7 @@ if __name__ == "__main__":
         target=tts_worker,
         kwargs={
             "model_path": args.model_path,
+            "cuda_devices": "2",  # default: 0
             "inputs_queue": tts_inputs_queue,
             "outputs_queue": tts_output_queue,
             "worker_ready": tts_worker_ready,
