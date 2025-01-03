@@ -497,7 +497,7 @@ def main(model_path):
 
 
     llm_embedding = load_model_embemding(model_path).to(device)
-    os.system('nvidia-smi')
+    # os.system('nvidia-smi')
     print('load_model_embemding done')
     llm = LLM(
         model=model_path,
@@ -508,17 +508,17 @@ def main(model_path):
         disable_custom_all_reduce=True,
         limit_mm_per_prompt={'image':256,'audio':50}
     )  
-    os.system('nvidia-smi')
+    # os.system('nvidia-smi')
     print('LLM done')
 
     model_config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
     sampling_params = SamplingParams(temperature=0.01, max_tokens=512, best_of=1, skip_special_tokens=False)
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     feature_extractor = AutoFeatureExtractor.from_pretrained(model_path, subfolder="feature_extractor", trust_remote_code=True)
-    os.system('nvidia-smi')
+    # os.system('nvidia-smi')
     print('feature_extractor done')
     tts = llm2TTS(os.path.join(model_path, 'vita_tts_ckpt/'))
-    os.system('nvidia-smi')
+    # os.system('nvidia-smi')
     print('llm2TTS done')
     _launch_demo(llm, model_config, sampling_params, tokenizer, feature_extractor, tts, llm_embedding)
 

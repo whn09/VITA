@@ -357,11 +357,9 @@ def load_model(
             with start_event_lock:
                 if start_event.is_set():
                     inputs = inputs_queue.get()
-                    print(f"Worker {llm_id} processing new input")
                     other_start_event.set()
                     start_event.clear()
                 else:
-                    # print(f"Worker {llm_id} waiting for start event")
                     continue
             
             inputs = _process_inputs(inputs)
@@ -861,10 +859,6 @@ def handle_audio(data):
     sid = request.sid
     if sid in connected_users:
         try:
-            # # 添加队列状态日志
-            # print(f"Request queue size: {current_app.config['REQUEST_QUEUE'].qsize()}")
-            # print(f"TTS output queue size: {current_app.config['TTS_OUTPUT_QUEUE'].qsize()}")
-            
             if not current_app.config['TTS_OUTPUT_QUEUE'].empty():
                 connected_users[sid][0].cancel()
                 connected_users[sid][0] = Timer(args.timeout, disconnect_user, [sid])
@@ -1000,7 +994,7 @@ if __name__ == "__main__":
         target=tts_worker,
         kwargs={
             "model_path": args.model_path,
-            "cuda_devices": "2",  # default: 0
+            "cuda_devices": "0",
             "inputs_queue": tts_inputs_queue,
             "outputs_queue": tts_output_queue,
             "worker_ready": tts_worker_ready,
@@ -1013,7 +1007,7 @@ if __name__ == "__main__":
         kwargs={
             "llm_id": 1,
             "engine_args": args.model_path, 
-            "cuda_devices": "0",  # default: "0"
+            "cuda_devices": "0",
             "inputs_queue": request_inputs_queue,
             "outputs_queue": tts_inputs_queue,
             "tts_outputs_queue": tts_output_queue,
@@ -1034,7 +1028,7 @@ if __name__ == "__main__":
         kwargs={
             "llm_id": 2,
             "engine_args": args.model_path,
-            "cuda_devices": "1",  # default: "1"
+            "cuda_devices": "1",
             "inputs_queue": request_inputs_queue,
             "outputs_queue": tts_inputs_queue,
             "tts_outputs_queue": tts_output_queue,
