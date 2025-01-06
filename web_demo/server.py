@@ -214,7 +214,6 @@ def load_model(
                 assert isinstance(image_path, np.ndarray), "Image must be either a file path or a numpy array."
                 return Image.fromarray(image_path).convert("RGB").transpose(Image.FLIP_LEFT_RIGHT)
 
-
         def _process_audio(audio_path):
             assert os.path.exists(audio_path), f"Audio file {audio_path} does not exist."
             audio, sr = torchaudio.load(audio_path)
@@ -325,11 +324,9 @@ def load_model(
         is_negative = text.startswith('☟')
         return is_negative
     
-
     async def stream_results(results_generator) -> AsyncGenerator[bytes, None]:
         previous_text = ""
         async for request_output in results_generator:
-
             text = request_output.outputs[0].text
             newly_generated_text = text[len(previous_text):]
             previous_text = text
@@ -438,6 +435,7 @@ def tts_worker(
     outputs_queue,
     worker_ready,
     wait_workers_ready,
+    use_sovits=False
 ):
 
     def audio_file_to_html(audio_file: str) -> str:
@@ -462,7 +460,6 @@ def tts_worker(
             f'<audio src="data:audio/mpeg;base64,{audio}" controls autoplay></audio>'
         )
         return audio_player
-
 
     def remove_uncommon_punctuation(text):
         common_punctuation = ".,!?;:()[]，。！？、：；（） "
@@ -544,7 +541,6 @@ def tts_worker(
         for key in greek_letters:
             sentence = sentence.replace(key, greek_letters[key])
 
-
         sentence = re.sub(r'\(?(\d+)\)?\((\d+)\)', r'\1乘\2', sentence)
         sentence = re.sub(r'\(?(\w+)\)?\^\(?(\w+)\)?', r'\1的\2次方', sentence)
         
@@ -559,15 +555,35 @@ def tts_worker(
     print(f"Process tts_worker device name: {torch.cuda.get_device_name(0)}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    llm_embedding = load_model_embemding(model_path).to(device)
-    # os.system('nvidia-smi')
-    print('load_model_embemding done')
-    from vita.model.vita_tts.decoder.llm2tts import llm2TTS
-    tts = llm2TTS(os.path.join(model_path, 'vita_tts_ckpt/'))
-    # os.system('nvidia-smi')
-    print('llm2TTS done')
+    
+    if use_sovits:
+        import sys
+        # 添加GPT_SoVITS项目路径到系统路径
+        gpt_sovits_path = os.path.abspath("/home/ubuntu/GPT-SoVITS")  # 替换为实际的GPT-SoVITS路径
+        if gpt_sovits_path not in sys.path:
+            sys.path.append(gpt_sovits_path)
+            sys.path.append(os.path.join(gpt_sovits_path, 'GPT_SoVITS'))
+        print('sys.path:', sys.path)
+        os.system('pip install numpy==1.23.5 numba==0.56.4 LangSegment>=0.2.0 pytorch-lightning cn2an pypinyin jieba_fast pyjyutping wordsegment g2p_en')
+        from inference_webui import i18n, dict_language, cut1, cut2, cut3, cut4, cut5, process_text, get_tts_wav
+        
+        ref_audio_path="/home/ubuntu/GPT-SoVITS/ref.wav"
+        prompt_text=None
+        prompt_language=i18n("中文")
+        language=i18n("多语种混合(粤语)")
+        speed=1.0
+        cut_method=i18n("不切")
+        ref_free = (prompt_text is None or len(prompt_text.strip()) == 0)
+    else:
+        llm_embedding = load_model_embemding(model_path).to(device)
+        # os.system('nvidia-smi')
+        print('load_model_embemding done')
+        from vita.model.vita_tts.decoder.llm2tts import llm2TTS
+        tts = llm2TTS(os.path.join(model_path, 'vita_tts_ckpt/'))
+        # os.system('nvidia-smi')
+        print('llm2TTS done')
+    
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-
 
     worker_ready.set()
     if not isinstance(wait_workers_ready, list):
@@ -624,28 +640,54 @@ def tts_worker(
         if tts_input_text.strip() == "":
             continue
         
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        embeddings = llm_embedding(torch.tensor(tokenizer.encode(tts_input_text)).to(device))
-        for seg in tts.run(embeddings.reshape(-1, 896).unsqueeze(0), decoder_topk,
-                            None, 
-                            codec_chunk_size=codec_chunk_size,
-                            codec_padding_size=codec_padding_size,
-                            seg_threshold=seg_threshold):
+        if use_sovits:
+            generator = get_tts_wav(
+                ref_wav_path=ref_audio_path,
+                prompt_text=prompt_text,
+                prompt_language=prompt_language,
+                text=tts_input_text,
+                text_language=language,
+                how_to_cut=cut_method,
+                top_k=15,
+                top_p=1,
+                temperature=1,
+                ref_free=ref_free,
+                speed=speed,
+                if_freeze=False,
+                inp_refs=None
+            )
+            
+            # 处理每个生成的音频片段
+            for sampling_rate, audio_data in generator:
+                print('sampling_rate:', sampling_rate)
+                print('audio_data:', np.max(audio_data), np.min(audio_data), np.mean(audio_data))
+                
+                audio_duration = audio_data.shape[-1]/sampling_rate
+                if past_llm_id == 0 or past_llm_id == llm_id:
+                    outputs_queue.put({"id": llm_id, "response": (tts_input_text, audio_data, audio_duration)})
+        else:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            embeddings = llm_embedding(torch.tensor(tokenizer.encode(tts_input_text)).to(device))
+            for seg in tts.run(embeddings.reshape(-1, 896).unsqueeze(0), decoder_topk,
+                                None, 
+                                codec_chunk_size=codec_chunk_size,
+                                codec_padding_size=codec_padding_size,
+                                seg_threshold=seg_threshold):
 
-            if IS_FIRST_SENTENCE:
-                try:
-                    split_idx = torch.nonzero(seg.abs() > 0.03, as_tuple=True)[-1][0]
-                    seg = seg[:, :, split_idx:]
-                except:
-                    print('Do not need to split')
-                    pass
+                if IS_FIRST_SENTENCE:
+                    try:
+                        split_idx = torch.nonzero(seg.abs() > 0.03, as_tuple=True)[-1][0]
+                        seg = seg[:, :, split_idx:]
+                    except:
+                        print('Do not need to split')
+                        pass
 
-            seg = torch.cat([seg], -1).float().cpu()
-            audio_data = (seg.squeeze().numpy() * 32768.0).astype(np.int16)
+                seg = torch.cat([seg], -1).float().cpu()
+                audio_data = (seg.squeeze().numpy() * 32768.0).astype(np.int16)
 
-            audio_duration = seg.shape[-1]/24000
-            if past_llm_id == 0 or past_llm_id == llm_id:
-                outputs_queue.put({"id": llm_id, "response": (tts_input_text, audio_data, audio_duration)})
+                audio_duration = seg.shape[-1]/24000
+                if past_llm_id == 0 or past_llm_id == llm_id:
+                    outputs_queue.put({"id": llm_id, "response": (tts_input_text, audio_data, audio_duration)})
 
 def merge_current_and_history(
         global_history,
@@ -994,11 +1036,12 @@ if __name__ == "__main__":
         target=tts_worker,
         kwargs={
             "model_path": args.model_path,
-            "cuda_devices": "0",
+            "cuda_devices": "2",  # default: "0"
             "inputs_queue": tts_inputs_queue,
             "outputs_queue": tts_output_queue,
             "worker_ready": tts_worker_ready,
             "wait_workers_ready": [llm_worker_1_ready, llm_worker_2_ready], 
+            "use_sovits": True,  # default: False
         }
     )
 
