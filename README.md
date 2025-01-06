@@ -13,7 +13,7 @@
     <img src="./asset/vita_demo.jpg" width="80%" height="80%">
 </p>
 
-<font size=7><div align='center' > [[📽 VITA-1.5 Demo Show! Here We Go! 🔥](https://youtu.be/tyi6SVFT5mM?si=fkMQCrwa5fVnmEe7)] </div></font>  
+<font size=7><div align='center' > [[📽 VITA-1.5 Demo Show! Here We Go! 🔥](https://youtu.be/tyi6SVFT5mM?si=fkMQCrwa5fVnmEe7)] </div></font>
 <font size=7><div align='center' > VITA-1.5 Spports Both **English** and **Chinese** </div></font>  
 
 
