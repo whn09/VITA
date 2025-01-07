@@ -1036,12 +1036,12 @@ if __name__ == "__main__":
         target=tts_worker,
         kwargs={
             "model_path": args.model_path,
-            "cuda_devices": "2",  # default: "0"
+            "cuda_devices": "0",  # default: "0"
             "inputs_queue": tts_inputs_queue,
             "outputs_queue": tts_output_queue,
             "worker_ready": tts_worker_ready,
             "wait_workers_ready": [llm_worker_1_ready, llm_worker_2_ready], 
-            "use_sovits": True,  # default: False
+            "use_sovits": False,  # default: False
         }
     )
 
