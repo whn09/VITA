@@ -1,11 +1,11 @@
-# VITA-1.5: An Open-Source Interactive Multimodal LLM
+# VITA-1.5: Towards GPT-4o Level Real-Time Vision and Speech Interaction
 
 
 <p align="center">
     <img src="./asset/vita_newlog.jpg" width="100%" height="100%">
 </p>
 
-<font size=7><div align='center' > [[📖 VITA-1.5 Paper (Comming Soon)](https://github.com/VITA-MLLM/VITA)] [[🤗 Hugging Face](https://huggingface.co/VITA-MLLM)] [[🍎 VITA-1.0](https://vita-home.github.io/)] [[💬 WeChat (微信)](./asset/wechat.jpg)]</div></font>
+<font size=7><div align='center' > [[📖 VITA-1.5 Paper](https://arxiv.org/pdf/2501.01957)] [[🤗 Hugging Face](https://huggingface.co/VITA-MLLM)] [[🍎 VITA-1.0](https://vita-home.github.io/)] [[💬 WeChat (微信)](./asset/wechat-group.jpg)]</div></font>
 
 ---
 
@@ -14,9 +14,12 @@
 </p>
 
 <font size=7><div align='center' > [[📽 VITA-1.5 Demo Show! Here We Go! 🔥](https://youtu.be/tyi6SVFT5mM?si=fkMQCrwa5fVnmEe7)] </div></font>  
+<font size=7><div align='center' > VITA-1.5 spports both **English** and **Chinese**.🌟 </div></font>  
 
 
 ## 🔥 News
+* **`2025.01.06`** 🌟 [VLMEvalKit](https://github.com/open-compass/VLMEvalKit) of OpenCompass has supported our both VITA-1.5 and VITA-1.0 models!
+* **`2025.01.06`** 🌟 The [technical report](https://huggingface.co/VITA-MLLM) of VITA-1.5 has been released!
 * **`2024.12.20`** 🌟 We are excited to introduce the **VITA-1.5**, a more powerful and more real-time version!
 * **`2024.08.12`** 🌟 We are very proud to launch **VITA-1.0**, the First-Ever open-source interactive omni multimodal LLM! We have submitted the open-source code, yet it is under review internally. We are moving the process forward as quickly as possible, stay tuned!
 
@@ -338,6 +341,13 @@ python parse_answer.py --video_types "s,m,l" --result_dir qa_w_sub
 If you find our work helpful for your research, please consider citing our work.   
 
 ```bibtex
+@article{fu2025vita,
+  title={VITA-1.5: Towards gpt-4o level real-time vision and speech interaction},
+  author={Fu, Chaoyou and Lin, Haojia and Wang, Xiong and Zhang, Yi-Fan and Shen, Yunhang and Liu, Xiaoyu and Li, Yangze and Long, Zuwei and Gao, Heting and others},
+  journal={arXiv preprint arXiv:2501.01957},
+  year={2025}
+}
+
 @article{fu2024vita,
   title={Vita: Towards open-source interactive omni multimodal llm},
   author={Fu, Chaoyou and Lin, Haojia and Long, Zuwei and Shen, Yunhang and Zhao, Meng and Zhang, Yifan and Wang, Xiong and Yin, Di and Ma, Long and Zheng, Xiawu and others},
