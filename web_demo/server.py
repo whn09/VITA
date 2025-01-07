@@ -571,8 +571,8 @@ def tts_worker(
         prompt_text=None
         prompt_language=i18n("中文")
         language=i18n("多语种混合(粤语)")
-        speed=1.0
-        cut_method=i18n("不切")
+        speed=1.5
+        cut_method=i18n("按标点符号切")
         ref_free = (prompt_text is None or len(prompt_text.strip()) == 0)
     else:
         llm_embedding = load_model_embemding(model_path).to(device)
@@ -1036,12 +1036,12 @@ if __name__ == "__main__":
         target=tts_worker,
         kwargs={
             "model_path": args.model_path,
-            "cuda_devices": "0",  # default: "0"
+            "cuda_devices": "2",  # default: "0"
             "inputs_queue": tts_inputs_queue,
             "outputs_queue": tts_output_queue,
             "worker_ready": tts_worker_ready,
             "wait_workers_ready": [llm_worker_1_ready, llm_worker_2_ready], 
-            "use_sovits": False,  # default: False
+            "use_sovits": True,  # default: False
         }
     )
 

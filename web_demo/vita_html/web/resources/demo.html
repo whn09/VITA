@@ -186,8 +186,8 @@
         stopVideoButton.addEventListener('click', stopVideo);
         clearHistoryButton.addEventListener('click', clearHistory);
 
-        audioContext2 = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-        // audioContext2 = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 32000 });  // For GPT_SoVITS
+        // audioContext2 = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+        audioContext2 = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 32000 });  // For GPT_SoVITS
 
         async function initAudioWorklet() {
             try {
