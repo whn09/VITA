@@ -27,7 +27,7 @@
 ## Contents <!-- omit in toc -->
 
 
-- [VITA-1.5: An Open-Source Interactive Multimodal LLM](#vita-15-an-open-source-interactive-multimodal-llm)
+- [VITA-1.5: Towards GPT-4o Level Real-Time Vision and Speech Interaction](#vita-15-towards-gpt-4o-level-real-time-vision-and-speech-interaction)
   - [🔥 News](#-news)
   - [👀 VITA-1.5 Overview](#-vita-15-overview)
     - [🌟 What’s New in VITA-1.5?](#-whats-new-in-vita-15)
