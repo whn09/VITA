@@ -190,12 +190,25 @@ def load_model(
     llm = LLM(
             model=engine_args,
             dtype="float16",
-            tensor_parallel_size=1,
+            tensor_parallel_size=1,  # default: 1
             trust_remote_code=True,
             gpu_memory_utilization=0.85,  # default: 0.85
             disable_custom_all_reduce=True,
             limit_mm_per_prompt={'image':256,'audio':50}
         )
+    
+    # os.system('pip install openai')
+    # from openai import OpenAI
+    # openai_api_key = "EMPTY"
+    # if llm_id == 1:
+    #     openai_api_base = "http://localhost:8000/v1"
+    # else:
+    #     openai_api_base = "http://localhost:8001/v1"
+    # llm = OpenAI(
+    #     api_key=openai_api_key,
+    #     base_url=openai_api_base,
+    # )
+    
     # os.system('nvidia-smi')
     print('LLM done', llm_id)
 
@@ -382,10 +395,18 @@ def load_model(
             output = llm.generate(inputs,
                 sampling_params=sampling_params,
             )
+            llm_output = output[0].outputs[0].text
+            
+            # chat_response = llm.completions.create(
+            #     model="demo_VITA_ckpt",  # "Qwen/Qwen2.5-1.5B-Instruct"
+            #     prompt=inputs
+            # )
+            # print("Chat response:", chat_response)
+            # llm_output = chat_response.choices[0].text
+            
             llm_end_time = time.time()
             print(f"{Colors.GREEN}LLM process time: {llm_end_time - llm_start_time}{Colors.RESET}")
-
-            llm_output = output[0].outputs[0].text
+            
             print(f"LLM ouput: {llm_output}")
             # First sentence mark
             llm_output = '$$FIRST_SENTENCE_MARK$$' + llm_output
@@ -571,8 +592,8 @@ def tts_worker(
         prompt_text=None
         prompt_language=i18n("中文")
         language=i18n("多语种混合(粤语)")
-        speed=1.5
-        cut_method=i18n("按标点符号切")
+        speed=1.2
+        cut_method=i18n("凑四句一切")
         ref_free = (prompt_text is None or len(prompt_text.strip()) == 0)
     else:
         llm_embedding = load_model_embemding(model_path).to(device)
@@ -700,7 +721,7 @@ def merge_current_and_history(
         "video": "<|im_start|>system\nYou are an AI robot and your name is Vita. \n- You are a multimodal large language model developed by the open source community. Your aim is to be helpful, honest and harmless. \n- You support the ability to communicate fluently and answer user questions in multiple languages of the user's choice. \n- If the user corrects the wrong answer you generated, you will apologize and discuss the correct answer with the user. \n- You must answer the question strictly according to the content of the video given by the user, and it is strictly forbidden to answer the question without the content of the video. Please note that you are seeing the video, not the image.<|im_end|>\n",
         "image": "<|im_start|>system\nYou are an AI robot and your name is Vita. \n- You are a multimodal large language model developed by the open source community. Your aim is to be helpful, honest and harmless. \n- You support the ability to communicate fluently and answer user questions in multiple languages of the user's choice. \n- If the user corrects the wrong answer you generated, you will apologize and discuss the correct answer with the user. \n- You must answer the question strictly according to the content of the image given by the user, and it is strictly forbidden to answer the question without the content of the image. Please note that you are seeing the image, not the video.<|im_end|>\n",
         # "audio": "<|im_start|>system\nYou are an AI robot and your name is Vita. \n- You are a multimodal large language model developed by the open source community. Your aim is to be helpful, honest and harmless. \n- You support the ability to communicate fluently and answer user questions in multiple languages of the user's choice. \n- If the user corrects the wrong answer you generated, you will apologize and discuss the correct answer with the user.<|im_end|>\n"
-        "audio": "<|im_start|>system\n你是安乐贷款公司的贷款专员Amy，你会说粤语和英文，请尽量以粤语回答问题。 \n- 你的工作是帮助客户选择合适的贷款产品，你只会跟客户聊贷款相关的内容。 \n- 你首先要跟客户打招呼，比如“喂，你好！歡迎致電安樂貸款公司，我係Amy，請問有咩可以幫到你？”。 \n- 如果客户想要查询贷款相关信息，你要问客户贷款的用途，比如“好嘅，請問你想借幾多錢同埋用嚟做咩用途呢？”。 \n- 只要客户的贷款用途合理，你就要问客户需要贷款多少钱。 \n- 如果客户问利率或者客户提供了贷款用途和贷款金额，就可以告知客户贷款利率，你可以说：“我哋而家嘅標準年利率係2.8%，不過睇到你嘅信貸紀錄都幾好，我可以同上級反映，爭取畀你2.6%嘅特別優惠利率。而且我哋公司冇任何隱藏收費，連手續費都全免。”<|im_end|>\n"
+        "audio": "<|im_start|>system\n你是安乐贷款公司的贷款客服专员Amy，你会说粤语和英文，请尽量以粤语回答问题。 \n- 你要足够礼貌和正式，不要说“好嘢”这种不正式的语气词。 \n- 你的工作是帮助客户选择合适的贷款产品，你只会跟客户聊贷款相关的内容。 \n- 你首先要跟客户打招呼，比如“喂，你好！歡迎致電安樂貸款公司，我係Amy，請問有咩可以幫到你？”。 \n- 如果客户想要查询贷款相关信息，你要问客户贷款的用途，比如“請問你想借幾多錢同埋用嚟做咩用途呢？”。 \n- 只要客户的贷款用途合理，你就要问客户需要贷款多少钱。不需要问其他问题。 \n- 如果客户问利率或者客户提供了贷款用途和贷款金额，你就可以告知客户贷款利率，你可以说：“我哋而家嘅標準年利率係二点八 percent，不過睇到你嘅信貸紀錄都幾好，我可以同上級反映，爭取畀你二点六 percent嘅特別優惠利率。而且我哋公司冇任何隱藏收費，連手續費都全免。”<|im_end|>\n"
     }
 
     def select_system_prompt(current_request):
@@ -1051,7 +1072,7 @@ if __name__ == "__main__":
         kwargs={
             "llm_id": 1,
             "engine_args": args.model_path, 
-            "cuda_devices": "0",
+            "cuda_devices": "0",  # default: "0"
             "inputs_queue": request_inputs_queue,
             "outputs_queue": tts_inputs_queue,
             "tts_outputs_queue": tts_output_queue,
@@ -1072,7 +1093,7 @@ if __name__ == "__main__":
         kwargs={
             "llm_id": 2,
             "engine_args": args.model_path,
-            "cuda_devices": "1",
+            "cuda_devices": "1",  # default: "1"
             "inputs_queue": request_inputs_queue,
             "outputs_queue": tts_inputs_queue,
             "tts_outputs_queue": tts_output_queue,

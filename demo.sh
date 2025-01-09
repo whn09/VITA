@@ -69,3 +69,19 @@
 # pip install flask==3.1.0 flask-socketio==5.5.0 cryptography==44.0.0 timm==1.0.12
 
 python -m web_demo.server --model_path demo_VITA_ckpt --ip 0.0.0.0 --port 8081
+
+# CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve demo_VITA_ckpt --dtype float16 --tensor-parallel-size 4 --trust-remote-code --gpu-memory-utilization 0.45 --disable-custom-all-reduce --limit-mm-per-prompt "image=256,audio=50" --port 8000 &
+# sleep 30
+# CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve demo_VITA_ckpt --dtype float16 --tensor-parallel-size 4 --trust-remote-code --gpu-memory-utilization 0.45 --disable-custom-all-reduce --limit-mm-per-prompt "image=256,audio=50" --port 8001 &
+
+# curl http://localhost:8000/v1/models
+# curl http://localhost:8000/v1/completions \
+#     -H "Content-Type: application/json" \
+#     -d '{
+#         "model": "demo_VITA_ckpt",
+#         "prompt": "San Francisco is a",
+#         "max_tokens": 1024,
+#         "temperature": 0
+#     }'
+
+# pkill -f "vllm serve"
