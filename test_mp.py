@@ -8,6 +8,8 @@ import multiprocessing
 from flask import Flask
 from flask_socketio import SocketIO
 
+from typing import List
+
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -45,18 +47,60 @@ def worker(gpu_id):
     print(f"Process on GPU {gpu_id}: {torch.cuda.device_count()} visible GPUs, current device is {torch.cuda.current_device()}")
     
     # 延迟导入vLLM
-    from vllm import LLM
+    from vllm import LLM, SamplingParams
+    from vllm import EngineArgs, LLMEngine, RequestOutput
     
-    engine_args = 'demo_VITA_ckpt'
-    llm = LLM(
-            model=engine_args,
+    model = 'demo_VITA_ckpt'
+    
+    # llm = LLM(
+    #         model=model,
+    #         dtype="float16",
+    #         tensor_parallel_size=1,  # default: 1
+    #         trust_remote_code=True,
+    #         gpu_memory_utilization=0.85,  # default: 0.85
+    #         disable_custom_all_reduce=True,
+    #         limit_mm_per_prompt={'image':256,'audio':50}
+    #     )
+    
+    engine_args = EngineArgs(model=model,
             dtype="float16",
             tensor_parallel_size=1,  # default: 1
             trust_remote_code=True,
             gpu_memory_utilization=0.85,  # default: 0.85
             disable_custom_all_reduce=True,
-            limit_mm_per_prompt={'image':256,'audio':50}
-        )
+            limit_mm_per_prompt={'image':256,'audio':50})
+    llm = LLMEngine.from_engine_args(engine_args)
+    
+    sampling_params = SamplingParams(
+        temperature=0.001,
+        max_tokens=512
+    )
+    
+    request_id = "1"
+    prompt = "请介绍一下人工智能"
+    
+    # 提交请求
+    llm.add_request(
+        request_id=request_id,
+        inputs=prompt,
+        params=sampling_params
+    )
+    
+    # 流式获取结果
+    last_output_text = ""
+    while True:
+        request_outputs: List[RequestOutput] = llm.step()
+        for request_output in request_outputs:
+            if request_output.request_id == request_id:
+                current_text = request_output.outputs[0].text
+                new_text = current_text[len(last_output_text):]
+                if new_text:
+                    print(new_text, end="", flush=True)
+                    last_output_text = current_text
+                
+                if request_output.finished:
+                    print()
+                    return
 
 if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)

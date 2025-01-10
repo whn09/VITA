@@ -15,7 +15,7 @@ import re
 import threading
 import time
 from queue import Empty
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List
 from threading import Timer
 
 import numpy as np
@@ -27,6 +27,8 @@ from flask import Flask, current_app, render_template, request
 from flask_socketio import SocketIO, disconnect, emit
 from transformers import AutoFeatureExtractor, AutoTokenizer
 from vllm import LLM, SamplingParams
+from vllm import LLMEngine, EngineArgs, RequestOutput
+from vllm.utils import random_uuid
 
 # from vita.model.vita_tts.decoder.llm2tts import llm2TTS  # 移到tts_worker中
 from web_demo.vita_html.web.parms import GlobalParams
@@ -197,6 +199,15 @@ def load_model(
             limit_mm_per_prompt={'image':256,'audio':50}
         )
     
+    # engine_args = EngineArgs(model=engine_args,
+    #         dtype="float16",
+    #         tensor_parallel_size=1,  # default: 1
+    #         trust_remote_code=True,
+    #         gpu_memory_utilization=0.85,  # default: 0.85
+    #         disable_custom_all_reduce=True,
+    #         limit_mm_per_prompt={'image':256,'audio':50})
+    # llm = LLMEngine.from_engine_args(engine_args)
+
     # os.system('pip install openai')
     # from openai import OpenAI
     # openai_api_key = "EMPTY"
@@ -448,6 +459,314 @@ def load_model(
                 return results
 
             results = loop.run_until_complete(collect_results(llm_output))
+
+def load_model_streaming(
+        llm_id,
+        engine_args,
+        cuda_devices,
+        inputs_queue,
+        outputs_queue,
+        tts_outputs_queue,
+        stop_event,
+        other_stop_event,
+        worker_ready,
+        wait_workers_ready,
+        start_event,
+        other_start_event,
+        start_event_lock,
+        global_history,
+        global_history_limit=0,
+    ):
+    #等待tts初始化
+    print(wait_workers_ready,'wait_workers_readywait_workers_readywait_workers_ready')
+    wait_workers_ready[1].wait()
+    print(wait_workers_ready,'wait_workers_readywait_workers_ready')
+    
+    os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
+    print(f"Setting CUDA_VISIBLE_DEVICES to {cuda_devices}")
+        
+    print(f"Process {llm_id} CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    print(f"Process {llm_id} available devices: {torch.cuda.device_count()}")
+    print(f"Process {llm_id} current device: {torch.cuda.current_device()}")
+    print(f"Process {llm_id} device name: {torch.cuda.get_device_name(0)}")
+    
+    # llm = LLM(
+    #         model=engine_args,
+    #         dtype="float16",
+    #         tensor_parallel_size=1,  # default: 1
+    #         trust_remote_code=True,
+    #         gpu_memory_utilization=0.85,  # default: 0.85
+    #         disable_custom_all_reduce=True,
+    #         limit_mm_per_prompt={'image':256,'audio':50}
+    #     )
+    
+    vllm_engine_args = EngineArgs(model=engine_args,
+            dtype="float16",
+            tensor_parallel_size=1,  # default: 1
+            trust_remote_code=True,
+            gpu_memory_utilization=0.85,  # default: 0.85
+            disable_custom_all_reduce=True,
+            limit_mm_per_prompt={'image':256,'audio':50})
+    llm = LLMEngine.from_engine_args(vllm_engine_args)
+
+    # os.system('pip install openai')
+    # from openai import OpenAI
+    # openai_api_key = "EMPTY"
+    # if llm_id == 1:
+    #     openai_api_base = "http://localhost:8000/v1"
+    # else:
+    #     openai_api_base = "http://localhost:8001/v1"
+    # llm = OpenAI(
+    #     api_key=openai_api_key,
+    #     base_url=openai_api_base,
+    # )
+    
+    # os.system('nvidia-smi')
+    print('LLM done', llm_id)
+
+    tokenizer = AutoTokenizer.from_pretrained(engine_args, trust_remote_code=True)
+    feature_extractor = AutoFeatureExtractor.from_pretrained(engine_args, subfolder="feature_extractor", trust_remote_code=True)
+
+    sampling_params = SamplingParams(temperature=0.001, max_tokens=512, best_of=1, skip_special_tokens=False)
+
+    def _process_inputs(inputs):
+
+        def _process_image(image_path):
+            if isinstance(image_path, str):
+                assert os.path.exists(image_path), f"Image file {image_path} does not exist."
+                return Image.open(image_path).convert("RGB").transpose(Image.FLIP_LEFT_RIGHT)
+            else:
+                assert isinstance(image_path, np.ndarray), "Image must be either a file path or a numpy array."
+                return Image.fromarray(image_path).convert("RGB").transpose(Image.FLIP_LEFT_RIGHT)
+
+        def _process_audio(audio_path):
+            assert os.path.exists(audio_path), f"Audio file {audio_path} does not exist."
+            audio, sr = torchaudio.load(audio_path)
+            audio_features = feature_extractor(audio, sampling_rate=sr, return_tensors="pt")["input_features"]
+            audio_features = audio_features.squeeze(0)
+            return audio_features
+        
+        def _process_video(video_path, max_frames=4, min_frames=4, s=None, e=None):
+            # speed up video decode via decord.
+
+            if s is None or e is None:
+                start_time, end_time = None, None
+            else:
+                start_time = int(s)
+                end_time = int(e)
+                start_time = max(start_time, 0)
+                end_time = max(end_time, 0)
+                if start_time > end_time:
+                    start_time, end_time = end_time, start_time
+                elif start_time == end_time:
+                    end_time = start_time + 1
+
+            if os.path.exists(video_path):
+                vreader = VideoReader(video_path, ctx=cpu(0))
+            else:
+                raise FileNotFoundError(f"Video file {video_path} does not exist.")
+
+            fps = vreader.get_avg_fps()
+            f_start = 0 if start_time is None else int(start_time * fps)
+            f_end = int(min(1000000000 if end_time is None else end_time * fps, len(vreader) - 1))
+            num_frames = f_end - f_start + 1
+            
+            if num_frames > 0:
+                # T x 3 x H x W
+                all_pos = list(range(f_start, f_end + 1))
+                if len(all_pos) > max_frames:
+                    sample_pos = [all_pos[_] for _ in np.linspace(0, len(all_pos) - 1, num=max_frames, dtype=int)]
+                elif len(all_pos) < min_frames:
+                    sample_pos = [all_pos[_] for _ in np.linspace(0, len(all_pos) - 1, num=min_frames, dtype=int)]
+                else:
+                    sample_pos = all_pos
+
+                # patch_images = [Image.fromarray(f).transpose(Image.FLIP_LEFT_RIGHT) for f in vreader.get_batch(sample_pos).asnumpy()]
+                patch_images = [Image.fromarray(f) for f in vreader.get_batch(sample_pos).asnumpy()]
+                return patch_images
+
+            else:
+                print("video path: {} error.".format(video_path))
+
+        if "multi_modal_data" in inputs:
+
+            if "image" in inputs["multi_modal_data"]:
+                image_inputs = inputs["multi_modal_data"]["image"]
+                if not isinstance(image_inputs, list):
+                    image_inputs = [image_inputs]
+                inputs["multi_modal_data"]["image"] = [_process_image(f) for f in image_inputs]
+
+                if "prompt" in inputs:
+                    assert inputs["prompt"].count(IMAGE_TOKEN) == len(image_inputs), \
+                        f"Number of image token {IMAGE_TOKEN} in prompt must match the number of image inputs."
+                elif "prompt_token_ids" in inputs:
+                    assert inputs["prompt_token_ids"].count(IMAGE_TOKEN_INDEX) == len(image_inputs), \
+                        f"Number of image token ids {IMAGE_TOKEN_INDEX} in prompt_token_ids must match the number of image inputs."
+                else:
+                    raise ValueError("Either 'prompt' or 'prompt_token_ids' must be provided.")
+
+            if "audio" in inputs["multi_modal_data"]:
+                audio_inputs = inputs["multi_modal_data"]["audio"]
+                if not isinstance(audio_inputs, list):
+                    audio_inputs = [audio_inputs]
+                inputs["multi_modal_data"]["audio"] = [_process_audio(f) for f in audio_inputs]
+
+                if "prompt" in inputs:
+                    assert inputs["prompt"].count(AUDIO_TOKEN) == len(inputs["multi_modal_data"]["audio"]), \
+                        f"Number of audio token {AUDIO_TOKEN} in prompt must match the number of audio inputs."
+                elif "prompt_token_ids" in inputs:
+                    assert inputs["prompt_token_ids"].count(AUDIO_TOKEN_INDEX) == len(inputs["multi_modal_data"]["audio"]), \
+                        f"Number of audio token ids {AUDIO_TOKEN_INDEX} in prompt_token_ids must match the number of audio inputs."
+                else:
+                    raise ValueError("Either 'prompt' or 'prompt_token_ids' must be provided.")
+
+            if "video" in inputs["multi_modal_data"]:
+                video_inputs = inputs["multi_modal_data"]["video"]
+                if not isinstance(video_inputs, list):
+                    video_inputs = [video_inputs]
+
+                assert "prompt" in inputs, "Prompt must be provided when video inputs are provided."
+                assert "image" not in inputs["multi_modal_data"], "Image inputs are not supported when video inputs are provided."
+
+                assert inputs["prompt"].count(VIDEO_TOKEN) == 1, "Currently only one video token is supported in prompt."
+
+                assert inputs["prompt"].count(VIDEO_TOKEN) == len(inputs["multi_modal_data"]["video"]), \
+                    f"Number of video token {VIDEO_TOKEN} in prompt must match the number of video inputs."
+                
+                video_frames_inputs = []
+                for video_input in video_inputs:
+                    video_frames_inputs.extend(_process_video(video_input, max_frames=4, min_frames=4))
+                inputs["prompt"] = inputs["prompt"].replace(VIDEO_TOKEN, IMAGE_TOKEN * len(video_frames_inputs))
+                if "image" not in inputs["multi_modal_data"]:
+                    inputs["multi_modal_data"]["image"] = []
+                inputs["multi_modal_data"]["image"].extend(video_frames_inputs)
+
+                inputs["multi_modal_data"].pop("video", None)
+
+        return inputs
+
+    def judge_negative(text):
+        is_negative = text.startswith('☟')
+        return is_negative
+    
+    async def stream_results(results_generator) -> AsyncGenerator[bytes, None]:
+        previous_text = ""
+        async for request_output in results_generator:
+            text = request_output.outputs[0].text
+            newly_generated_text = text[len(previous_text):]
+            previous_text = text
+            yield newly_generated_text
+
+    async def collect_results_demo(results_generator):
+        async for newly_generated_text in stream_results(results_generator):
+            continue
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    worker_ready.set()
+    if not isinstance(wait_workers_ready, list):
+        wait_workers_ready = [wait_workers_ready]
+
+    while True:
+        # Wait for all workers to be ready
+        if not all([worker.is_set() for worker in wait_workers_ready]):
+            time.sleep(0.1)
+            continue
+
+        if not inputs_queue.empty():
+
+            with start_event_lock:
+                if start_event.is_set():
+                    inputs = inputs_queue.get()
+                    other_start_event.set()
+                    start_event.clear()
+                else:
+                    continue
+            
+            inputs = _process_inputs(inputs)
+            current_inputs = inputs.copy()
+            inputs = merge_current_and_history(
+                global_history[-global_history_limit:],
+                inputs,
+                skip_history_vision=True,
+                move_image_token_to_start=True
+            )
+        
+            if "prompt" in inputs:
+                # Process multimodal tokens
+                inputs["prompt_token_ids"] = tokenizer_image_audio_token(inputs["prompt"], tokenizer, image_token_index=IMAGE_TOKEN_INDEX, audio_token_index=AUDIO_TOKEN_INDEX)
+            else:
+                assert "prompt_token_ids" in inputs, "Either 'prompt' or 'prompt_token_ids' must be provided."
+
+            print(f"Process {cuda_devices} is processing inputs: {inputs}")
+
+            inputs.pop("prompt", None)
+
+            llm_start_time = time.time()
+            
+            request_id = random_uuid()
+            llm.add_request(
+                request_id=request_id,
+                inputs=inputs,
+                params=sampling_params
+            )
+
+            async def collect_results(request_id):
+                results = []
+                is_first_time_to_work = True
+                history_generated_text = ''
+                last_output_text = ''
+                while True:
+                    request_outputs: List[RequestOutput] = llm.step()
+                    print('llm.step()')
+                    for request_output in request_outputs:
+                        if request_output.request_id == request_id:
+                            # First sentence mark
+                            current_text = '$$FIRST_SENTENCE_MARK$$' + request_output.outputs[0].text
+                            newly_generated_text = current_text[len(last_output_text):]
+                            if newly_generated_text:
+                                print(newly_generated_text, end="", flush=True)
+                                last_output_text = current_text
+                                
+                                # is_negative = judge_negative(newly_generated_text)
+                                is_negative = False
+                                
+                                if not is_negative:
+                                    history_generated_text += newly_generated_text
+                                    if is_first_time_to_work:
+                                        print(f"Process {cuda_devices} is about to interrupt other process")
+                                        stop_event.clear()
+                                        other_stop_event.set()
+                                        clear_queue(outputs_queue)
+                                        clear_queue(tts_outputs_queue)
+                                        is_first_time_to_work = False
+
+                                    if not stop_event.is_set():
+                                        results.append(newly_generated_text)
+                                        history_generated_text = history_generated_text.replace('☞ ', '').replace('☞', '')                            
+                                        if newly_generated_text in [",", "，", ".", "。", "?", "\n", "？", "!", "！", "、"]:
+                                            outputs_queue.put({"id": llm_id, "response": history_generated_text})
+                                            history_generated_text = ''
+                                    else:
+                                        print(f"Process {cuda_devices} is interrupted.")
+                                        break
+                                else:
+                                    print(f"Process {cuda_devices} is generating negative text.")
+                                    break
+                                                            
+                            current_inputs["response"] = "".join(results)
+                            if not current_inputs["response"] == "":
+                                global_history.append(current_inputs)
+                            
+                            if request_output.finished:
+                                print()
+                                return results
+                            
+            results = loop.run_until_complete(collect_results(request_id))
+            
+            llm_end_time = time.time()
+            print(f"{Colors.GREEN}LLM process time: {llm_end_time - llm_start_time}{Colors.RESET}")
 
 def tts_worker(
     model_path,
@@ -720,8 +1039,8 @@ def merge_current_and_history(
     system_prompts = {
         "video": "<|im_start|>system\nYou are an AI robot and your name is Vita. \n- You are a multimodal large language model developed by the open source community. Your aim is to be helpful, honest and harmless. \n- You support the ability to communicate fluently and answer user questions in multiple languages of the user's choice. \n- If the user corrects the wrong answer you generated, you will apologize and discuss the correct answer with the user. \n- You must answer the question strictly according to the content of the video given by the user, and it is strictly forbidden to answer the question without the content of the video. Please note that you are seeing the video, not the image.<|im_end|>\n",
         "image": "<|im_start|>system\nYou are an AI robot and your name is Vita. \n- You are a multimodal large language model developed by the open source community. Your aim is to be helpful, honest and harmless. \n- You support the ability to communicate fluently and answer user questions in multiple languages of the user's choice. \n- If the user corrects the wrong answer you generated, you will apologize and discuss the correct answer with the user. \n- You must answer the question strictly according to the content of the image given by the user, and it is strictly forbidden to answer the question without the content of the image. Please note that you are seeing the image, not the video.<|im_end|>\n",
-        # "audio": "<|im_start|>system\nYou are an AI robot and your name is Vita. \n- You are a multimodal large language model developed by the open source community. Your aim is to be helpful, honest and harmless. \n- You support the ability to communicate fluently and answer user questions in multiple languages of the user's choice. \n- If the user corrects the wrong answer you generated, you will apologize and discuss the correct answer with the user.<|im_end|>\n"
-        "audio": "<|im_start|>system\n你是安乐贷款公司的贷款客服专员Amy，你会说粤语和英文，请尽量以粤语回答问题。 \n- 你要足够礼貌和正式，不要说“好嘢”这种不正式的语气词。 \n- 你的工作是帮助客户选择合适的贷款产品，你只会跟客户聊贷款相关的内容。 \n- 你首先要跟客户打招呼，比如“喂，你好！歡迎致電安樂貸款公司，我係Amy，請問有咩可以幫到你？”。 \n- 如果客户想要查询贷款相关信息，你要问客户贷款的用途，比如“請問你想借幾多錢同埋用嚟做咩用途呢？”。 \n- 只要客户的贷款用途合理，你就要问客户需要贷款多少钱。不需要问其他问题。 \n- 如果客户问利率或者客户提供了贷款用途和贷款金额，你就可以告知客户贷款利率，你可以说：“我哋而家嘅標準年利率係二点八 percent，不過睇到你嘅信貸紀錄都幾好，我可以同上級反映，爭取畀你二点六 percent嘅特別優惠利率。而且我哋公司冇任何隱藏收費，連手續費都全免。”<|im_end|>\n"
+        "audio": "<|im_start|>system\nYou are an AI robot and your name is Vita. \n- You are a multimodal large language model developed by the open source community. Your aim is to be helpful, honest and harmless. \n- You support the ability to communicate fluently and answer user questions in multiple languages of the user's choice. \n- If the user corrects the wrong answer you generated, you will apologize and discuss the correct answer with the user.<|im_end|>\n"
+        # "audio": "<|im_start|>system\n你是安乐贷款公司的贷款客服专员Amy，你会说粤语和英文，请尽量以粤语回答问题。 \n- 你要足够礼貌和正式，不要说“好嘢”这种不正式的语气词。 \n- 你的工作是帮助客户选择合适的贷款产品，你只会跟客户聊贷款相关的内容。 \n- 你首先要跟客户打招呼，比如“喂，你好！歡迎致電安樂貸款公司，我係Amy，請問有咩可以幫到你？”。 \n- 如果客户想要查询贷款相关信息，你要问客户贷款的用途，比如“請問你想借幾多錢同埋用嚟做咩用途呢？”。 \n- 只要客户的贷款用途合理，你就要问客户需要贷款多少钱。不需要问其他问题。 \n- 如果客户问利率或者客户提供了贷款用途和贷款金额，你就可以告知客户贷款利率，你可以说：“我哋而家嘅標準年利率係二点八 percent，不過睇到你嘅信貸紀錄都幾好，我可以同上級反映，爭取畀你二点六 percent嘅特別優惠利率。而且我哋公司冇任何隱藏收費，連手續費都全免。”<|im_end|>\n"
     }
 
     def select_system_prompt(current_request):
@@ -1068,7 +1387,7 @@ if __name__ == "__main__":
     )
 
     model_1_process = multiprocessing.Process(
-        target=load_model,
+        target=load_model_streaming,  # default: load_model
         kwargs={
             "llm_id": 1,
             "engine_args": args.model_path, 
@@ -1089,7 +1408,7 @@ if __name__ == "__main__":
     )
 
     model_2_process = multiprocessing.Process(
-        target=load_model,
+        target=load_model_streaming,  # default: load_model
         kwargs={
             "llm_id": 2,
             "engine_args": args.model_path,
