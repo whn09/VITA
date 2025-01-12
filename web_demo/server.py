@@ -5,7 +5,6 @@ import argparse
 import asyncio
 import base64
 import builtins
-import cv2
 import datetime
 import io
 import json
@@ -19,20 +18,12 @@ from typing import AsyncGenerator
 from threading import Timer
 
 import numpy as np
-import torch
-import torchaudio
 from PIL import Image
-from decord import VideoReader, cpu
 from flask import Flask, current_app, render_template, request
 from flask_socketio import SocketIO, disconnect, emit
-from transformers import AutoFeatureExtractor, AutoTokenizer
-from vllm import LLM, SamplingParams
 
-from vita.model.vita_tts.decoder.llm2tts import llm2TTS
 from web_demo.vita_html.web.parms import GlobalParams
 from web_demo.vita_html.web.pem import generate_self_signed_cert
-from vita.model.language_model.vita_qwen2 import VITAQwen2Config, VITAQwen2ForCausalLM
-
 
 def get_args():
     parser = argparse.ArgumentParser(description='VITA')
@@ -103,6 +94,7 @@ def clear_queue(queue):
             break
 
 def load_model_embemding(model_path):
+    from vita.model.language_model.vita_qwen2 import VITAQwen2Config, VITAQwen2ForCausalLM
     config_path = os.path.join(model_path, 'origin_config.json')
     config = VITAQwen2Config.from_pretrained(config_path)
     model = VITAQwen2ForCausalLM.from_pretrained(model_path, config=config, low_cpu_mem_usage=True)
@@ -170,17 +162,27 @@ def load_model(
         global_history,
         global_history_limit=0,
     ):
+    # 设置CUDA设备
+    os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
+    
+    # 导入依赖CUDA的包
+    import torch
+    import torchaudio
+    from vllm import LLM, SamplingParams
+    from transformers import AutoFeatureExtractor, AutoTokenizer
+    from decord import VideoReader, cpu
+    from vita.model.language_model.vita_qwen2 import VITAQwen2Config, VITAQwen2ForCausalLM
+    
     #等待tts初始化
     print(wait_workers_ready,'wait_workers_readywait_workers_readywait_workers_ready')
     wait_workers_ready[1].wait()
     print(wait_workers_ready,'wait_workers_readywait_workers_ready')
-    os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
     llm = LLM(
             model=engine_args,
             dtype="float16",
             tensor_parallel_size=1,
             trust_remote_code=True,
-            gpu_memory_utilization=0.85,
+            gpu_memory_utilization=0.85,  # 调整以解决 OOM 或减少显存使用
             disable_custom_all_reduce=True,
             limit_mm_per_prompt={'image':256,'audio':50}
         )
@@ -425,7 +427,13 @@ def tts_worker(
     worker_ready,
     wait_workers_ready,
 ):
-
+    # 导入依赖CUDA的包
+    import torch
+    import torchaudio
+    from vita.model.vita_tts.decoder.llm2tts import llm2TTS
+    from vita.model.language_model.vita_qwen2 import VITAQwen2Config, VITAQwen2ForCausalLM
+    from transformers import AutoTokenizer
+    
     def audio_file_to_html(audio_file: str) -> str:
         """
         Convert audio file to HTML audio player.
@@ -875,6 +883,8 @@ def handle_audio(data):
 
 @socketio.on('video_frame')
 def handle_video_frame(data):
+    import cv2
+    
     sid = request.sid
     if sid in connected_users:
         try:
@@ -1038,6 +1048,9 @@ if __name__ == "__main__":
     app.config['MODEL_2_PROCESS'] = model_2_process
     app.config['TTS_WORKER_PROCESS'] = tts_worker_process
 
+    import cv2
+    import torch
+    import torchaudio
     # 5. 启动 Flask 应用
     cert_file = "web_demo/vita_html/web/resources/cert.pem"
     key_file = "web_demo/vita_html/web/resources/key.pem"
