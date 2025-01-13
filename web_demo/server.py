@@ -77,7 +77,6 @@ socketio = SocketIO(app)
 # init connected users
 connected_users = {}
 
-
 def disconnect_user(sid):
     if sid in connected_users:
         print(f"Disconnecting user {sid} due to time out")
@@ -165,8 +164,15 @@ def load_model(
         global_history,
         global_history_limit=0,
     ):
+    
+    #等待tts初始化
+    print(wait_workers_ready,'wait_workers_readywait_workers_readywait_workers_ready')
+    wait_workers_ready[1].wait()
+    print(wait_workers_ready,'wait_workers_readywait_workers_ready')
+    
     # 设置CUDA设备
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
+    print(f"Setting CUDA_VISIBLE_DEVICES to {cuda_devices}")
     
     # 导入依赖CUDA的包
     import torch
@@ -174,15 +180,6 @@ def load_model(
     from vllm import LLM, SamplingParams
     from transformers import AutoFeatureExtractor, AutoTokenizer
     from decord import VideoReader, cpu
-    from vita.model.language_model.vita_qwen2 import VITAQwen2Config, VITAQwen2ForCausalLM
-    
-    #等待tts初始化
-    print(wait_workers_ready,'wait_workers_readywait_workers_readywait_workers_ready')
-    wait_workers_ready[1].wait()
-    print(wait_workers_ready,'wait_workers_readywait_workers_ready')
-    
-    os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
-    print(f"Setting CUDA_VISIBLE_DEVICES to {cuda_devices}")
         
     print(f"Process {llm_id} CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
     print(f"Process {llm_id} available devices: {torch.cuda.device_count()}")
@@ -454,21 +451,20 @@ def load_model_streaming(
     
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
     print(f"Setting CUDA_VISIBLE_DEVICES to {cuda_devices}")
-        
-    print(f"Process {llm_id} CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
-    print(f"Process {llm_id} available devices: {torch.cuda.device_count()}")
-    print(f"Process {llm_id} current device: {torch.cuda.current_device()}")
-    print(f"Process {llm_id} device name: {torch.cuda.get_device_name(0)}")
     
     # 导入依赖CUDA的包
     import torch
     import torchaudio
-    from vllm import LLM, SamplingParams
+    from vllm import SamplingParams
     from vllm import LLMEngine, EngineArgs, RequestOutput
     from vllm.utils import random_uuid
     from transformers import AutoFeatureExtractor, AutoTokenizer
     from decord import VideoReader, cpu
-    from vita.model.language_model.vita_qwen2 import VITAQwen2Config, VITAQwen2ForCausalLM
+    
+    print(f"Process {llm_id} CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    print(f"Process {llm_id} available devices: {torch.cuda.device_count()}")
+    print(f"Process {llm_id} current device: {torch.cuda.current_device()}")
+    print(f"Process {llm_id} device name: {torch.cuda.get_device_name(0)}")
     
     vllm_engine_args = EngineArgs(model=engine_args,
             dtype="float16",
@@ -606,18 +602,6 @@ def load_model_streaming(
     def judge_negative(text):
         is_negative = text.startswith('☟')
         return is_negative
-    
-    async def stream_results(results_generator) -> AsyncGenerator[bytes, None]:
-        previous_text = ""
-        async for request_output in results_generator:
-            text = request_output.outputs[0].text
-            newly_generated_text = text[len(previous_text):]
-            previous_text = text
-            yield newly_generated_text
-
-    async def collect_results_demo(results_generator):
-        async for newly_generated_text in stream_results(results_generator):
-            continue
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -703,7 +687,7 @@ def load_model_streaming(
                                     if not stop_event.is_set():
                                         results.append(newly_generated_text)
                                         history_generated_text = history_generated_text.replace('☞ ', '').replace('☞', '')                            
-                                        if newly_generated_text in [",", "，", ".", "。", "?", "\n", "？", "!", "！", "、"]:
+                                        if newly_generated_text in [",", "，", ".", "。", "?", "\n", "？", "!", "！", "、"] or request_output.finished:
                                             outputs_queue.put({"id": llm_id, "response": history_generated_text})
                                             history_generated_text = ''
                                     else:
@@ -737,9 +721,7 @@ def tts_worker(
 ):
     # 导入依赖CUDA的包
     import torch
-    import torchaudio
     from vita.model.vita_tts.decoder.llm2tts import llm2TTS
-    from vita.model.language_model.vita_qwen2 import VITAQwen2Config, VITAQwen2ForCausalLM
     from transformers import AutoTokenizer
     
     def audio_file_to_html(audio_file: str) -> str:
@@ -869,7 +851,7 @@ def tts_worker(
             sys.path.append(os.path.join(gpt_sovits_path, 'GPT_SoVITS'))
         print('sys.path:', sys.path)
         os.system('pip install numpy==1.23.5 numba==0.56.4 LangSegment>=0.2.0 pytorch-lightning cn2an pypinyin jieba_fast pyjyutping wordsegment g2p_en')
-        from inference_webui import i18n, dict_language, cut1, cut2, cut3, cut4, cut5, process_text, get_tts_wav
+        from inference_webui import i18n, get_tts_wav
         
         ref_audio_path="/home/ubuntu/GPT-SoVITS/ref.wav"
         prompt_text=None
@@ -963,14 +945,12 @@ def tts_worker(
             
             # 处理每个生成的音频片段
             for sampling_rate, audio_data in generator:
-                print('sampling_rate:', sampling_rate)
-                print('audio_data:', np.max(audio_data), np.min(audio_data), np.mean(audio_data))
-                
+                # print('sampling_rate:', sampling_rate)
+                # print('audio_data:', np.max(audio_data), np.min(audio_data), np.mean(audio_data))
                 audio_duration = audio_data.shape[-1]/sampling_rate
                 if past_llm_id == 0 or past_llm_id == llm_id:
                     outputs_queue.put({"id": llm_id, "response": (tts_input_text, audio_data, audio_duration)})
         else:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             embeddings = llm_embedding(torch.tensor(tokenizer.encode(tts_input_text)).to(device))
             for seg in tts.run(embeddings.reshape(-1, 896).unsqueeze(0), decoder_topk,
                                 None, 
