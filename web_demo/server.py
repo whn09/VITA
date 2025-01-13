@@ -59,7 +59,7 @@ args = get_args()
 decoder_topk = 2
 codec_padding_size = 10
 target_sample_rate = 16000
-last_tts_model_id = 0
+last_tts_model_id = 1  # default: 0
 
 IMAGE_TOKEN_INDEX = 51000
 AUDIO_TOKEN_INDEX = 51001
@@ -188,7 +188,7 @@ def load_model(
     
     llm = LLM(
             model=engine_args,
-            dtype="float16",
+            dtype="bfloat16",  # default: float16
             tensor_parallel_size=1,
             trust_remote_code=True,
             gpu_memory_utilization=0.85,  # 调整以解决 OOM 或减少显存使用
@@ -201,7 +201,7 @@ def load_model(
     tokenizer = AutoTokenizer.from_pretrained(engine_args, trust_remote_code=True)
     feature_extractor = AutoFeatureExtractor.from_pretrained(engine_args, subfolder="feature_extractor", trust_remote_code=True)
 
-    sampling_params = SamplingParams(temperature=0.001, max_tokens=512, best_of=1, skip_special_tokens=False)
+    sampling_params = SamplingParams(temperature=0.01, max_tokens=512, best_of=1, skip_special_tokens=False)  # default: temperature=0.001
 
     def _process_inputs(inputs):
 
@@ -467,7 +467,7 @@ def load_model_streaming(
     print(f"Process {llm_id} device name: {torch.cuda.get_device_name(0)}")
     
     vllm_engine_args = EngineArgs(model=engine_args,
-            dtype="float16",
+            dtype="bfloat16",  # default: float16
             tensor_parallel_size=1,  # default: 1
             trust_remote_code=True,
             gpu_memory_utilization=0.85,  # default: 0.85
@@ -481,7 +481,7 @@ def load_model_streaming(
     tokenizer = AutoTokenizer.from_pretrained(engine_args, trust_remote_code=True)
     feature_extractor = AutoFeatureExtractor.from_pretrained(engine_args, subfolder="feature_extractor", trust_remote_code=True)
 
-    sampling_params = SamplingParams(temperature=0.001, max_tokens=512, best_of=1, skip_special_tokens=False)
+    sampling_params = SamplingParams(temperature=0.01, max_tokens=512, best_of=1, skip_special_tokens=False)  # default: temperature=0.001
 
     def _process_inputs(inputs):
 
@@ -718,12 +718,7 @@ def tts_worker(
     worker_ready,
     wait_workers_ready,
     use_sovits=False
-):
-    # 导入依赖CUDA的包
-    import torch
-    from vita.model.vita_tts.decoder.llm2tts import llm2TTS
-    from transformers import AutoTokenizer
-    
+):  
     def audio_file_to_html(audio_file: str) -> str:
         """
         Convert audio file to HTML audio player.
@@ -834,6 +829,11 @@ def tts_worker(
 
     os.environ["CUDA_VISIBLE_DEVICES"] = cuda_devices
     print(f"Setting CUDA_VISIBLE_DEVICES to {cuda_devices}")
+    
+     # 导入依赖CUDA的包
+    import torch
+    from vita.model.vita_tts.decoder.llm2tts import llm2TTS
+    from transformers import AutoTokenizer
         
     print(f"Process tts_worker CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
     print(f"Process tts_worker available devices: {torch.cuda.device_count()}")
@@ -864,7 +864,6 @@ def tts_worker(
         llm_embedding = load_model_embemding(model_path).to(device)
         # os.system('nvidia-smi')
         print('load_model_embemding done')
-        from vita.model.vita_tts.decoder.llm2tts import llm2TTS
         tts = llm2TTS(os.path.join(model_path, 'vita_tts_ckpt/'))
         # os.system('nvidia-smi')
         print('llm2TTS done')
@@ -925,6 +924,8 @@ def tts_worker(
 
         if tts_input_text.strip() == "":
             continue
+        
+        print('tts_input_text:', tts_input_text)
         
         if use_sovits:
             generator = get_tts_wav(
@@ -1003,7 +1004,6 @@ def merge_current_and_history(
     eos = "<|im_end|>\n"
 
     if len(global_history) == 0:
-        
         current_request["prompt"] = (system_prompt + user_prefix + current_request["prompt"] + eos + bot_prefix).replace('☞ ','☞').replace('☟ ','☟')
         return current_request
     
@@ -1035,17 +1035,17 @@ def merge_current_and_history(
     for modality in ["image", "audio", "video"]:
         if "multi_modal_data" in current_request and modality in current_request["multi_modal_data"]:
             current_multi_modal_data[modality].extend(current_request["multi_modal_data"][modality])
-    # print('tag2!!!!!!!!!!!!',current_prompt)
+    # print('tag3!!!!!!!!!!!!',current_prompt)
     for modality in ["image", "audio", "video"]:
         if current_multi_modal_data[modality] == []:
             current_multi_modal_data.pop(modality, None)
-    # print('tag3!!!!!!!!!!!!',current_prompt)
+    # print('tag4!!!!!!!!!!!!',current_prompt)
     if move_image_token_to_start:
         num_image_tokens = current_prompt.count(IMAGE_TOKEN)
         current_prompt = current_prompt.replace(IMAGE_TOKEN, "")
         current_prompt = current_prompt.replace(system_prompt, "")
-        current_prompt = system_prompt + user_prefix + IMAGE_TOKEN * num_image_tokens + current_prompt.replace(user_prefix,'')
-    # print('tag4!!!!!!!!!!!!',current_prompt)
+        current_prompt = system_prompt + user_prefix + IMAGE_TOKEN * num_image_tokens + current_prompt  # TODO: why?!!!  .replace(user_prefix,'')
+    # print('tag5!!!!!!!!!!!!',current_prompt)
     current_request["prompt"] = current_prompt.replace('☞ ','☞').replace('☟ ','☟')
     current_request["multi_modal_data"] = current_multi_modal_data
 
@@ -1314,7 +1314,7 @@ if __name__ == "__main__":
     gradio_worker_ready = manager.Event()
 
     global_history = manager.list()
-    global_history_limit = 1
+    global_history_limit = 10  # default: 1
 
     # 2. 启动工作进程
 
@@ -1332,7 +1332,7 @@ if __name__ == "__main__":
     )
 
     model_1_process = multiprocessing.Process(
-        target=load_model_streaming,  # default: load_model
+        target=load_model,  # default: load_model
         kwargs={
             "llm_id": 1,
             "engine_args": args.model_path, 
@@ -1353,7 +1353,7 @@ if __name__ == "__main__":
     )
 
     model_2_process = multiprocessing.Process(
-        target=load_model_streaming,  # default: load_model
+        target=load_model,  # default: load_model
         kwargs={
             "llm_id": 2,
             "engine_args": args.model_path,
