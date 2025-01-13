@@ -1403,7 +1403,7 @@ if __name__ == "__main__":
     key_file = "web_demo/vita_html/web/resources/key.pem"
     if not os.path.exists(cert_file) or not os.path.exists(key_file):
         generate_self_signed_cert(cert_file, key_file)
-    socketio.run(app, host=args.ip, port=args.port, debug=False, ssl_context=(cert_file, key_file))
+    socketio.run(app, host=args.ip, port=args.port, debug=False, ssl_context=(cert_file, key_file), allow_unsafe_werkzeug=True)
 
     # 6. 等待进程结束
     model_1_process.join()
