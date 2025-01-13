@@ -687,7 +687,7 @@ def load_model_streaming(
                                     if not stop_event.is_set():
                                         results.append(newly_generated_text)
                                         history_generated_text = history_generated_text.replace('☞ ', '').replace('☞', '')                            
-                                        if newly_generated_text in [",", "，", ".", "。", "?", "\n", "？", "!", "！", "、"] or request_output.finished:
+                                        if newly_generated_text in [",", "，", ".", "。", "?", "\n", "？", "!", "！", "、"]:
                                             outputs_queue.put({"id": llm_id, "response": history_generated_text})
                                             history_generated_text = ''
                                     else:
