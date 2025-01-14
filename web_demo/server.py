@@ -59,7 +59,7 @@ args = get_args()
 decoder_topk = 2
 codec_padding_size = 10
 target_sample_rate = 16000
-last_tts_model_id = 1  # default: 0
+last_tts_model_id = 0
 
 IMAGE_TOKEN_INDEX = 51000
 AUDIO_TOKEN_INDEX = 51001
@@ -373,7 +373,8 @@ def load_model(
             else:
                 assert "prompt_token_ids" in inputs, "Either 'prompt' or 'prompt_token_ids' must be provided."
 
-            print(f"Process {cuda_devices} is processing inputs: {inputs}")
+            # print(f"Process {cuda_devices} is processing inputs: {inputs}")
+            print(f"Process {llm_id} is processing inputs: {inputs}")
 
             inputs.pop("prompt", None)
 
@@ -400,7 +401,8 @@ def load_model(
                     if not is_negative:
                         history_generated_text += newly_generated_text
                         if is_first_time_to_work:
-                            print(f"Process {cuda_devices} is about to interrupt other process")
+                            # print(f"Process {cuda_devices} is about to interrupt other process")
+                            print(f"Process {llm_id} is about to interrupt other process")
                             stop_event.clear()
                             other_stop_event.set()
                             clear_queue(outputs_queue)
@@ -414,11 +416,16 @@ def load_model(
                                 outputs_queue.put({"id": llm_id, "response": history_generated_text})
                                 history_generated_text = ''
                         else:
-                            print(f"Process {cuda_devices} is interrupted.")
+                            # print(f"Process {cuda_devices} is interrupted.")
+                            print(f"Process {llm_id} is interrupted.")
                             break
                     else:
-                        print(f"Process {cuda_devices} is generating negative text.")
+                        # print(f"Process {cuda_devices} is generating negative text.")
+                        print(f"Process {llm_id} is generating negative text.")
                         break
+                    
+                if not stop_event.is_set() and history_generated_text != '':
+                    outputs_queue.put({"id": llm_id, "response": history_generated_text})
                 
                 current_inputs["response"] = "".join(results)
                 if not current_inputs["response"] == "":
@@ -641,7 +648,8 @@ def load_model_streaming(
             else:
                 assert "prompt_token_ids" in inputs, "Either 'prompt' or 'prompt_token_ids' must be provided."
 
-            print(f"Process {cuda_devices} is processing inputs: {inputs}")
+            # print(f"Process {cuda_devices} is processing inputs: {inputs}")
+            print(f"Process {llm_id} is processing inputs: {inputs}")
 
             inputs.pop("prompt", None)
 
@@ -677,7 +685,8 @@ def load_model_streaming(
                                 if not is_negative:
                                     history_generated_text += newly_generated_text
                                     if is_first_time_to_work:
-                                        print(f"Process {cuda_devices} is about to interrupt other process")
+                                        # print(f"Process {cuda_devices} is about to interrupt other process")
+                                        print(f"Process {llm_id} is about to interrupt other process")
                                         stop_event.clear()
                                         other_stop_event.set()
                                         clear_queue(outputs_queue)
@@ -691,10 +700,12 @@ def load_model_streaming(
                                             outputs_queue.put({"id": llm_id, "response": history_generated_text})
                                             history_generated_text = ''
                                     else:
-                                        print(f"Process {cuda_devices} is interrupted.")
+                                        # print(f"Process {cuda_devices} is interrupted.")
+                                        print(f"Process {llm_id} is interrupted.")
                                         break
                                 else:
-                                    print(f"Process {cuda_devices} is generating negative text.")
+                                    # print(f"Process {cuda_devices} is generating negative text.")
+                                    print(f"Process {llm_id} is generating negative text.")
                                     break
                                                             
                             current_inputs["response"] = "".join(results)
@@ -702,7 +713,8 @@ def load_model_streaming(
                                 global_history.append(current_inputs)
                             
                             if request_output.finished:
-                                print()
+                                if not stop_event.is_set() and history_generated_text != '':
+                                    outputs_queue.put({"id": llm_id, "response": history_generated_text})
                                 return results
                             
             results = loop.run_until_complete(collect_results(request_id))
@@ -850,13 +862,13 @@ def tts_worker(
             sys.path.append(gpt_sovits_path)
             sys.path.append(os.path.join(gpt_sovits_path, 'GPT_SoVITS'))
         print('sys.path:', sys.path)
-        os.system('pip install numpy==1.23.5 numba==0.56.4 LangSegment>=0.2.0 pytorch-lightning cn2an pypinyin jieba_fast pyjyutping wordsegment g2p_en')
+        os.system('pip install numpy==1.23.5 numba==0.56.4 LangSegment>=0.2.0 pytorch-lightning cn2an pypinyin jieba_fast pyjyutping wordsegment g2p_en opencc==1.1.1')
         from inference_webui import i18n, get_tts_wav
         
         ref_audio_path="/home/ubuntu/GPT-SoVITS/ref.wav"
         prompt_text=None
         prompt_language=i18n("中文")
-        language=i18n("多语种混合(粤语)")
+        language=i18n("多语种混合")  # i18n("多语种混合(粤语)")
         speed=1.0
         cut_method=i18n("不切")
         ref_free = (prompt_text is None or len(prompt_text.strip()) == 0)
@@ -912,7 +924,7 @@ def tts_worker(
         if '$$FIRST_SENTENCE_MARK$$' in tts_input_text.strip():
             codec_chunk_size = 20
             seg_threshold = 0.1
-            tts_input_text = tts_input_text.replace('$$FIRST_SENTENCE_MARK$$', '').replace('，', '。').replace(',', '。').replace('$$COMMA_SENTENCE_MARK$$', '')
+            tts_input_text = tts_input_text.replace('$$FIRST_SENTENCE_MARK$$', '').replace('，', '。').replace(',', '。')  # .replace('$$COMMA_SENTENCE_MARK$$', '')
             IS_FIRST_SENTENCE = True
         else:
             codec_chunk_size = 40
@@ -1200,7 +1212,7 @@ def handle_audio(data):
                         _, audio, length = output_data["response"]
 
                         print(f"llm_id: {llm_id}, last_tts_model_id: {last_tts_model_id}")
-                        if last_tts_model_id != llm_id:
+                        if last_tts_model_id != 0 and last_tts_model_id != llm_id:
                             print(f"Received output from other process {llm_id}, last output tts model is {last_tts_model_id}, skipping...")
                             socketio.emit('stop_tts', to=sid)
                         else:
@@ -1314,7 +1326,7 @@ if __name__ == "__main__":
     gradio_worker_ready = manager.Event()
 
     global_history = manager.list()
-    global_history_limit = 10  # default: 1
+    global_history_limit = 100  # default: 1
 
     # 2. 启动工作进程
 

@@ -118,7 +118,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>VITA-1.5 Demo</h1>
+        <h1 style="margin: 0 0;">VITA-1.5 Demo</h1>
         <div class="button-row">
             <button id="startButton">Dialogue Start</button>
             <button id="stopButton" disabled>Dialogue Stop</button>
@@ -128,15 +128,15 @@
         <div class="clear-history-row">
             <button id="clearHistoryButton">Clear History</button>
         </div>
-        <h3>Input Video</h3>
-        <div class="video-container">
+        <h3 style="margin: 0 0;">Input Video</h3>
+        <div class="video-container" style="margin: 0 0;">
             <video id="videoElement" autoplay playsinline style="display: none;"></video>
             <canvas id="videoCanvas" width="600" height="360"></canvas>
             <canvas id="hiddenCanvas" width="1280" height="768" style="display: none;"></canvas>
         </div>
-        <h3>Input Waveform</h3>
+        <h3 style="margin: 0 0;">Input Waveform</h3>
         <canvas id="inputCanvas" width="600" height="50"></canvas>
-        <h3>Output Waveform</h3>
+        <h3 style="margin: 0 0;">Output Waveform</h3>
         <canvas id="outputCanvas" width="600" height="50"></canvas>
         <audio id="remoteAudio" autoplay playsinline></audio>
         <div id="alertBox" class="alert">Too many users connected. Please refresh and try again.</div>
