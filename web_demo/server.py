@@ -708,11 +708,10 @@ def load_model_streaming(
                                     print(f"Process {llm_id} is generating negative text.")
                                     break
                                                             
-                            current_inputs["response"] = "".join(results)
-                            if not current_inputs["response"] == "":
-                                global_history.append(current_inputs)
-                            
                             if request_output.finished:
+                                current_inputs["response"] = "".join(results)
+                                if not current_inputs["response"] == "":
+                                    global_history.append(current_inputs)
                                 if not stop_event.is_set() and history_generated_text != '':
                                     outputs_queue.put({"id": llm_id, "response": history_generated_text})
                                 return results
@@ -1239,9 +1238,7 @@ def handle_audio(data):
         disconnect()
 
 @socketio.on('video_frame')
-def handle_video_frame(data):
-    import cv2
-    
+def handle_video_frame(data):    
     sid = request.sid
     if sid in connected_users:
         try:
@@ -1344,7 +1341,7 @@ if __name__ == "__main__":
     )
 
     model_1_process = multiprocessing.Process(
-        target=load_model,  # default: load_model
+        target=load_model_streaming,  # default: load_model, load_model_streaming
         kwargs={
             "llm_id": 1,
             "engine_args": args.model_path, 
@@ -1365,7 +1362,7 @@ if __name__ == "__main__":
     )
 
     model_2_process = multiprocessing.Process(
-        target=load_model,  # default: load_model
+        target=load_model_streaming,  # default: load_model
         kwargs={
             "llm_id": 2,
             "engine_args": args.model_path,
