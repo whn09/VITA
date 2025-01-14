@@ -427,7 +427,7 @@ def load_model(
                 if not stop_event.is_set() and history_generated_text != '':
                     outputs_queue.put({"id": llm_id, "response": history_generated_text})
                 
-                current_inputs["response"] = "".join(results)
+                current_inputs["response"] = "".join(results).replace('$$FIRST_SENTENCE_MARK$$', '')
                 if not current_inputs["response"] == "":
                     global_history.append(current_inputs)
                 return results
@@ -683,7 +683,6 @@ def load_model_streaming(
                                 is_negative = False
                                 
                                 if not is_negative:
-                                    history_generated_text += newly_generated_text
                                     if is_first_time_to_work:
                                         # print(f"Process {cuda_devices} is about to interrupt other process")
                                         print(f"Process {llm_id} is about to interrupt other process")
@@ -695,10 +694,18 @@ def load_model_streaming(
 
                                     if not stop_event.is_set():
                                         results.append(newly_generated_text)
-                                        history_generated_text = history_generated_text.replace('☞ ', '').replace('☞', '')                            
-                                        if newly_generated_text in [",", "，", ".", "。", "?", "\n", "？", "!", "！", "、"]:
+                                        history_generated_text = history_generated_text.replace('☞ ', '').replace('☞', '')     
+                                        puncts = [",", "，", ".", "。", "?", "\n", "？", "!", "！", "、"]       
+                                        if any(p in newly_generated_text for p in puncts):
+                                            # 找到最后一个标点符号的位置
+                                            last_punct_pos = max(newly_generated_text.rfind(p) for p in puncts)
+                                            history_generated_text += newly_generated_text[:last_punct_pos + 1]
                                             outputs_queue.put({"id": llm_id, "response": history_generated_text})
-                                            history_generated_text = ''
+                                            # history_generated_text只保留标点符号之后的部分
+                                            history_generated_text = newly_generated_text[last_punct_pos + 1:]
+                                        else:
+                                            # 如果没有标点，继续累积文本
+                                            history_generated_text += newly_generated_text
                                     else:
                                         # print(f"Process {cuda_devices} is interrupted.")
                                         print(f"Process {llm_id} is interrupted.")
@@ -709,7 +716,7 @@ def load_model_streaming(
                                     break
                                                             
                             if request_output.finished:
-                                current_inputs["response"] = "".join(results)
+                                current_inputs["response"] = "".join(results).replace('$$FIRST_SENTENCE_MARK$$', '')
                                 if not current_inputs["response"] == "":
                                     global_history.append(current_inputs)
                                 if not stop_event.is_set() and history_generated_text != '':
