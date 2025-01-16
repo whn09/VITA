@@ -250,6 +250,8 @@ python -m web_demo.web_ability_demo  demo_VITA_ckpt/
 
 To run the real-time interactive demo, you need to make the following preparations:
 
+- Make sure that you have executed the above instructions under the **Demo** section (`cp` files out from the `vllm_tools`).
+
 - Prepare a VAD (Voice Activity Detection) module. 
 You can choose to download [silero_vad.onnx](https://github.com/snakers4/silero-vad/tree/v4.0/files) and [silero_vad.jit](https://github.com/snakers4/silero-vad/tree/v4.0/files), and place these files in the `./web_demo/wakeup_and_vad/resource/` directory.
 
