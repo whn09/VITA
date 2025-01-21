@@ -35,6 +35,9 @@ def get_args():
     parser.add_argument('--port', help='port of server', default=8081)
     parser.add_argument('--max_users', type=int, default=2)
     parser.add_argument('--timeout', type=int, default=600)
+    parser.add_argument('--use_streaming', action='store_true', help='whether to use streaming mode')
+    parser.add_argument('--use_one_model', action='store_true', help='whether to use only one model')
+    parser.add_argument('--use_sovits', action='store_true', help='whether to use GPT_SoVITS tts model')
     args = parser.parse_args()
     print(args)
     return args
@@ -1343,12 +1346,15 @@ if __name__ == "__main__":
             "outputs_queue": tts_output_queue,
             "worker_ready": tts_worker_ready,
             "wait_workers_ready": [llm_worker_1_ready, llm_worker_2_ready], 
-            "use_sovits": False,  # default: False
+            "use_sovits": args.use_sovits,
         }
     )
+    
+    if args.use_one_model:
+        llm_worker_2_ready.set()
 
     model_1_process = multiprocessing.Process(
-        target=load_model_streaming,  # default: load_model, load_model_streaming
+        target=load_model_streaming if args.use_streaming else load_model,
         kwargs={
             "llm_id": 1,
             "engine_args": args.model_path, 
@@ -1368,30 +1374,32 @@ if __name__ == "__main__":
         }
     )
 
-    model_2_process = multiprocessing.Process(
-        target=load_model_streaming,  # default: load_model
-        kwargs={
-            "llm_id": 2,
-            "engine_args": args.model_path,
-            "cuda_devices": "1",
-            "inputs_queue": request_inputs_queue,
-            "outputs_queue": tts_inputs_queue,
-            "tts_outputs_queue": tts_output_queue,
-            "start_event": worker_2_start_event,
-            "other_start_event": worker_1_start_event,
-            "start_event_lock": worker_1_2_start_event_lock,
-            "stop_event": worker_2_stop_event,
-            "other_stop_event": worker_1_stop_event,
-            "worker_ready": llm_worker_2_ready,
-            "wait_workers_ready": [llm_worker_1_ready, tts_worker_ready], 
-            "global_history": global_history,
-            "global_history_limit": global_history_limit,
-        }
-    )
+    if not args.use_one_model:
+        model_2_process = multiprocessing.Process(
+            target=load_model_streaming if args.use_streaming else load_model,
+            kwargs={
+                "llm_id": 2,
+                "engine_args": args.model_path,
+                "cuda_devices": "1",
+                "inputs_queue": request_inputs_queue,
+                "outputs_queue": tts_inputs_queue,
+                "tts_outputs_queue": tts_output_queue,
+                "start_event": worker_2_start_event,
+                "other_start_event": worker_1_start_event,
+                "start_event_lock": worker_1_2_start_event_lock,
+                "stop_event": worker_2_stop_event,
+                "other_stop_event": worker_1_stop_event,
+                "worker_ready": llm_worker_2_ready,
+                "wait_workers_ready": [llm_worker_1_ready, tts_worker_ready], 
+                "global_history": global_history,
+                "global_history_limit": global_history_limit,
+            }
+        )
 
     # 3. 启动进程
     model_1_process.start()
-    model_2_process.start()
+    if not args.use_one_model:
+        model_2_process.start()
     tts_worker_process.start()
 
     # 4. 将多进程资源添加到 Flask app context
@@ -1408,7 +1416,8 @@ if __name__ == "__main__":
     app.config['TTS_READY'] = tts_worker_ready
     app.config['GLOBAL_HISTORY'] = global_history
     app.config['MODEL_1_PROCESS'] = model_1_process
-    app.config['MODEL_2_PROCESS'] = model_2_process
+    if not args.use_one_model:
+        app.config['MODEL_2_PROCESS'] = model_2_process
     app.config['TTS_WORKER_PROCESS'] = tts_worker_process
 
     import cv2
@@ -1423,5 +1432,6 @@ if __name__ == "__main__":
 
     # 6. 等待进程结束
     model_1_process.join()
-    model_2_process.join()
+    if not args.use_one_model:
+        model_2_process.join()
     tts_worker_process.join()

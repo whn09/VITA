@@ -125,35 +125,35 @@ class WakeupAndVAD:
     def get_chunk_size(self):
         return self.CHUNK
 
-    def load_model(self):
-        self.sess_opt = onnxruntime.SessionOptions()
-        self.sess_opt.intra_op_num_threads = 4
-        self.sess_opt.inter_op_num_threads = 4
+    # def load_model(self):
+    #     self.sess_opt = onnxruntime.SessionOptions()
+    #     self.sess_opt.intra_op_num_threads = 4
+    #     self.sess_opt.inter_op_num_threads = 4
 
-        sys.path.append(os.path.abspath(self.model_dir))
+    #     sys.path.append(os.path.abspath(self.model_dir))
 
-        self.input_chunk = torch.zeros([1, self.chunk_size + self.chunk_overlap, self.feat_dim])
-        self.input_sample = torch.zeros([1, self.CHUNK + self.frame_shift , 1])
+    #     self.input_chunk = torch.zeros([1, self.chunk_size + self.chunk_overlap, self.feat_dim])
+    #     self.input_sample = torch.zeros([1, self.CHUNK + self.frame_shift , 1])
 
-    def load_cmvn(self):
-        cmvn_info = torch.load(f"{self.model_dir}/cmvn.dict")
-        means = cmvn_info['mean_stat']
-        variance = cmvn_info['var_stat']
-        count = cmvn_info['frame_num']
-        for i in range(len(means)):
-            means[i] /= count
-            variance[i] = variance[i] / count - means[i] * means[i]
-            if variance[i] < 1.0e-20:
-                variance[i] = 1.0e-20
-            variance[i] = 1.0 / math.sqrt(variance[i])
-        self.cmvn = np.array([means, variance]).astype(np.float32)
+    # def load_cmvn(self):
+    #     cmvn_info = torch.load(f"{self.model_dir}/cmvn.dict")
+    #     means = cmvn_info['mean_stat']
+    #     variance = cmvn_info['var_stat']
+    #     count = cmvn_info['frame_num']
+    #     for i in range(len(means)):
+    #         means[i] /= count
+    #         variance[i] = variance[i] / count - means[i] * means[i]
+    #         if variance[i] < 1.0e-20:
+    #             variance[i] = 1.0e-20
+    #         variance[i] = 1.0 / math.sqrt(variance[i])
+    #     self.cmvn = np.array([means, variance]).astype(np.float32)
     
     def load_vad(self):
         self.vad_model = torch.jit.load(f"{self.model_dir}/silero_vad.jit")
         self.vad_iterator = VADIterator(self.vad_model)
 
-        self.vad_model_post = torch.jit.load(f"{self.model_dir}/silero_vad.jit")
-        self.vad_iterator_post = VADIterator(self.vad_model_post, min_silence_duration_ms=50)
+        # self.vad_model_post = torch.jit.load(f"{self.model_dir}/silero_vad.jit")
+        # self.vad_iterator_post = VADIterator(self.vad_model_post, min_silence_duration_ms=50)
     
     def reset_dialog(self):
         self.vad_iterator.reset_states()
@@ -161,16 +161,16 @@ class WakeupAndVAD:
         self.dialog_time = 0
         self.dialog_part = torch.zeros([0,])
     
-    def post_process_history(self, history):
-        self.vad_iterator_post.reset_states()
-        self.time_stamps = []
-        for i in range(0, len(history) // 1024 * 1024, 1024):
-            speech_dict = self.vad_iterator_post(history[i: i+ 1024], return_seconds=True)
-            if speech_dict is not None and 'start' in speech_dict:
-                self.time_stamps.append(speech_dict['start'])
-        if self.cache_history - self.time_stamps[-1] < 1.5:
-            history = history[:int(self.time_stamps[-1] * 16000)]
-        return history
+    # def post_process_history(self, history):
+    #     self.vad_iterator_post.reset_states()
+    #     self.time_stamps = []
+    #     for i in range(0, len(history) // 1024 * 1024, 1024):
+    #         speech_dict = self.vad_iterator_post(history[i: i+ 1024], return_seconds=True)
+    #         if speech_dict is not None and 'start' in speech_dict:
+    #             self.time_stamps.append(speech_dict['start'])
+    #     if self.cache_history - self.time_stamps[-1] < 1.5:
+    #         history = history[:int(self.time_stamps[-1] * 16000)]
+    #     return history
 
     def predict(self,
                 audio: torch.Tensor):

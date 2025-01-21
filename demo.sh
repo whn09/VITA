@@ -61,11 +61,11 @@
 #  Real-Time Interactive Demo
 
 # mkdir -p web_demo/wakeup_and_vad/resources/
-# wget https://raw.githubusercontent.com/snakers4/silero-vad/refs/tags/v4.0/files/silero_vad.onnx -O web_demo/wakeup_and_vad/resources/silero_vad.onnx
+# # wget https://raw.githubusercontent.com/snakers4/silero-vad/refs/tags/v4.0/files/silero_vad.onnx -O web_demo/wakeup_and_vad/resources/silero_vad.onnx
 # wget https://raw.githubusercontent.com/snakers4/silero-vad/refs/tags/v4.0/files/silero_vad.jit -O web_demo/wakeup_and_vad/resources/silero_vad.jit
 
 # For a better real-time interactive experience, you need to set max_dynamic_patch to 1 in demo_VITA_ckpt/config.json. When you run the basic demo, you can set it to the default value of 12 to enhance the model's visual capabilities.
 
 # pip install flask==3.1.0 flask-socketio==5.5.0 cryptography==44.0.0 timm==1.0.12
 
-python -m web_demo.server --model_path demo_VITA_ckpt --ip 0.0.0.0 --port 8081
+python -m web_demo.server --model_path demo_VITA_ckpt --ip 0.0.0.0 --port 8081 --use_streaming --use_one_model --use_sovits

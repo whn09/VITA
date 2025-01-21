@@ -239,8 +239,8 @@
                     showTemporaryAlert(`音频处理初始化失败: ${workletError.message}`);
                 }
 
-                audioContext2 = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-                // audioContext2 = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 32000 });  // For GPT_SoVITS
+                // audioContext2 = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+                audioContext2 = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 32000 });  // For GPT_SoVITS
                 
                 const input = audioContext.createMediaStreamSource(localStream);
                 audioWorklet = new AudioWorkletNode(audioContext, 'audio-processor', {
