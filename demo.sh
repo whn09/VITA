@@ -68,4 +68,4 @@
 
 # pip install flask==3.1.0 flask-socketio==5.5.0 cryptography==44.0.0 timm==1.0.12
 
-python -m web_demo.server --model_path demo_VITA_ckpt --ip 0.0.0.0 --port 8081 --use_streaming --use_one_model --use_sovits
+python -m web_demo.server --model_path demo_VITA_ckpt --ip 0.0.0.0 --port 8081 --use_streaming --use_one_model
