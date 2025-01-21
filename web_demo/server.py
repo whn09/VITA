@@ -356,8 +356,9 @@ def load_model(
             with start_event_lock:
                 if start_event.is_set():
                     inputs = inputs_queue.get()
-                    other_start_event.set()
-                    start_event.clear()
+                    if not args.use_one_model:
+                        other_start_event.set()
+                        start_event.clear()
                 else:
                     continue
             
@@ -631,8 +632,9 @@ def load_model_streaming(
             with start_event_lock:
                 if start_event.is_set():
                     inputs = inputs_queue.get()
-                    other_start_event.set()
-                    start_event.clear()
+                    if not args.use_one_model:
+                        other_start_event.set()
+                        start_event.clear()
                 else:
                     continue
             
