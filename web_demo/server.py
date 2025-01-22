@@ -38,6 +38,7 @@ def get_args():
     parser.add_argument('--use_streaming', action='store_true', help='whether to use streaming mode')
     parser.add_argument('--use_one_model', action='store_true', help='whether to use only one model')
     parser.add_argument('--use_sovits', action='store_true', help='whether to use GPT_SoVITS tts model')
+    parser.add_argument('--use_kokoro', action='store_true', help='whether to use Kokoro-82M tts model')
     args = parser.parse_args()
     print(args)
     return args
@@ -740,7 +741,8 @@ def tts_worker(
     outputs_queue,
     worker_ready,
     wait_workers_ready,
-    use_sovits=False
+    use_sovits=False,
+    use_kokoro=False
 ):  
     def audio_file_to_html(audio_file: str) -> str:
         """
@@ -883,6 +885,25 @@ def tts_worker(
         speed=1.0
         cut_method=i18n("不切")
         ref_free = (prompt_text is None or len(prompt_text.strip()) == 0)
+    elif use_kokoro:
+        import sys
+        # 添加Kokoro项目路径到系统路径
+        kokoro_path = os.path.abspath("/home/ubuntu/Kokoro-82M")  # 替换为实际的GPT-SoVITS路径
+        if kokoro_path not in sys.path:
+            sys.path.append(kokoro_path)
+        print('sys.path:', sys.path)
+        # Build the model and load the default voicepack
+        from models import build_model
+        from kokoro import generate
+        MODEL = build_model('/home/ubuntu/Kokoro-82M/kokoro-v0_19.pth', device)
+        VOICE_NAME = [
+            'af', # Default voice is a 50-50 mix of Bella & Sarah
+            'af_bella', 'af_sarah', 'am_adam', 'am_michael',
+            'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis',
+            'af_nicole', 'af_sky',
+        ][0]
+        VOICEPACK = torch.load(f'/home/ubuntu/Kokoro-82M/voices/{VOICE_NAME}.pt', weights_only=True).to(device)
+        print(f'Loaded voice: {VOICE_NAME}')
     else:
         llm_embedding = load_model_embemding(model_path).to(device)
         # os.system('nvidia-smi')
@@ -974,6 +995,16 @@ def tts_worker(
                 audio_duration = audio_data.shape[-1]/sampling_rate
                 if past_llm_id == 0 or past_llm_id == llm_id:
                     outputs_queue.put({"id": llm_id, "response": (tts_input_text, audio_data, audio_duration)})
+        elif use_kokoro:
+            audio_data, out_ps = generate(MODEL, tts_input_text, VOICEPACK, lang=VOICE_NAME[0], speed=1)
+            audio_data = (audio_data * 32768.0).astype(np.int16)
+            sampling_rate = 24000
+            # 处理每个生成的音频片段
+            # print('sampling_rate:', sampling_rate)
+            # print('audio_data:', np.max(audio_data), np.min(audio_data), np.mean(audio_data))
+            audio_duration = audio_data.shape[-1]/sampling_rate
+            if past_llm_id == 0 or past_llm_id == llm_id:
+                outputs_queue.put({"id": llm_id, "response": (tts_input_text, audio_data, audio_duration)})
         else:
             embeddings = llm_embedding(torch.tensor(tokenizer.encode(tts_input_text)).to(device))
             for seg in tts.run(embeddings.reshape(-1, 896).unsqueeze(0), decoder_topk,
@@ -1349,6 +1380,7 @@ if __name__ == "__main__":
             "worker_ready": tts_worker_ready,
             "wait_workers_ready": [llm_worker_1_ready, llm_worker_2_ready], 
             "use_sovits": args.use_sovits,
+            "use_kokoro": args.use_kokoro,
         }
     )
     
