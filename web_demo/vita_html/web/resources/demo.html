@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VITA Demo</title>
     <script src="https://unpkg.com/socket.io-client@4.8.1/dist/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body {
             display: flex;
@@ -114,6 +115,130 @@
                 margin: 10px 0;
             }
         }
+
+        .output-video-container {
+            position: relative;
+            width: 30%;
+            max-width: 1000px;
+            margin: 20px auto;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 9/16;
+        }
+
+        #videoPlayer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .controls {
+            position: relative;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 1rem;
+            background: linear-gradient(transparent, rgba(0,0,0,0.7));
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .output-video-container:hover .controls {
+            opacity: 1;
+        }
+
+        .status {
+            color: white;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .status-dot.live {
+            background: #f00;
+            box-shadow: 0 0 8px #f00;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .quality-selector {
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .quality-selector option {
+            background: #000;
+        }
+
+        .error-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 1rem;
+            display: none;
+        }
+
+        .retry-button {
+            padding: 8px 16px;
+            background: #f00;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .retry-button:hover {
+            background: #d00;
+        }
+
+        .stats {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -142,6 +267,30 @@
         <div id="alertBox" class="alert">Too many users connected. Please refresh and try again.</div>
         <div id="alertBox2" class="alert">Connect time out. Please refresh and reconnect.</div>
         <div id="alertBox3" class="alert">Prompt set success.</div>
+        <h3 style="margin: 0 0;">Output Video</h3>
+        <div class="output-video-container">
+            <div class="video-wrapper">
+                <video id="videoPlayer" controls playsinline></video>
+                <div class="controls">
+                    <div class="status">
+                        <div class="status-dot"></div>
+                        <span class="status-text">Loading...</span>
+                    </div>
+                    <select class="quality-selector" id="qualitySelector">
+                        <option value="auto">Auto</option>
+                    </select>
+                </div>
+                <div class="stats" id="stats">
+                    Buffered: <span id="buffered">0s</span><br>
+                    Bandwidth: <span id="bandwidth">0 Mbps</span><br>
+                    Current Level: <span id="currentLevel">0</span>
+                </div>
+                <div class="error-overlay" id="errorOverlay">
+                    <div class="error-message">Failed to load video stream</div>
+                    <button class="retry-button" onclick="initPlayer()">Retry</button>
+                </div>
+            </div>
+        </div>    
     </div>
     <script>
         const remoteAudio = document.getElementById('remoteAudio');
@@ -505,6 +654,167 @@
             showTemporaryAlert('对话历史已清除');
             playNextAudio();
         }
+    </script>
+    <script>
+        class HLSPlayer {
+            constructor(videoElement, hlsUrl) {
+                this.video = videoElement;
+                this.hlsUrl = hlsUrl;
+                this.hls = null;
+                this.qualitySelector = document.getElementById('qualitySelector');
+                this.statusDot = document.querySelector('.status-dot');
+                this.statusText = document.querySelector('.status-text');
+                this.errorOverlay = document.getElementById('errorOverlay');
+                this.stats = document.getElementById('stats');
+                
+                this.init();
+            }
+
+            init() {
+                if (Hls.isSupported()) {
+                    this.hls = new Hls({
+                        debug: false,
+                        startLevel: -1, // 自动选择初始质量
+                        enableWorker: true, // 启用Web Worker
+                        lowLatencyMode: true, // 低延迟模式
+                        backBufferLength: 90 // 90秒回放缓冲
+                    });
+
+                    this.setupHLS();
+                    this.setupEventListeners();
+                } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Safari支持原生HLS
+                    this.video.src = this.hlsUrl;
+                    this.setupEventListeners();
+                } else {
+                    this.showError('HLS is not supported in this browser');
+                }
+            }
+
+            setupHLS() {
+                this.hls.loadSource(this.hlsUrl);
+                this.hls.attachMedia(this.video);
+                
+                this.hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+                    this.updateQualityLevels(data.levels);
+                    this.statusDot.classList.add('live');
+                    this.statusText.textContent = 'Live';
+                    this.video.play().catch(e => console.log('Auto-play prevented:', e));
+                });
+
+                this.hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        switch(data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                this.handleNetworkError();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                this.handleMediaError();
+                                break;
+                            default:
+                                this.showError('An error occurred while playing the video');
+                                break;
+                        }
+                    }
+                });
+
+                // 监控统计信息
+                setInterval(() => this.updateStats(), 1000);
+            }
+
+            setupEventListeners() {
+                this.qualitySelector.addEventListener('change', (e) => {
+                    const level = parseInt(e.target.value);
+                    if (this.hls) {
+                        this.hls.currentLevel = level;
+                    }
+                });
+
+                this.video.addEventListener('playing', () => {
+                    this.errorOverlay.style.display = 'none';
+                    this.statusDot.classList.add('live');
+                    this.statusText.textContent = 'Live';
+                });
+
+                this.video.addEventListener('waiting', () => {
+                    this.statusText.textContent = 'Buffering...';
+                });
+
+                // 双击显示/隐藏统计信息
+                this.video.addEventListener('dblclick', () => {
+                    this.stats.style.display = 
+                        this.stats.style.display === 'none' ? 'block' : 'none';
+                });
+            }
+
+            updateQualityLevels(levels) {
+                this.qualitySelector.innerHTML = '<option value="-1">Auto</option>';
+                levels.forEach((level, index) => {
+                    const option = document.createElement('option');
+                    option.value = index;
+                    option.text = `${level.height}p`;
+                    this.qualitySelector.appendChild(option);
+                });
+            }
+
+            updateStats() {
+                if (!this.hls) return;
+
+                const buffered = this.video.buffered;
+                if (buffered.length > 0) {
+                    document.getElementById('buffered').textContent = 
+                        `${(buffered.end(buffered.length-1) - buffered.start(0)).toFixed(1)}s`;
+                }
+
+                document.getElementById('bandwidth').textContent = 
+                    `${(this.hls.bandwidthEstimate / 1000000).toFixed(2)} Mbps`;
+                
+                document.getElementById('currentLevel').textContent = 
+                    this.hls.currentLevel === -1 ? 'auto' : `${this.hls.levels[this.hls.currentLevel].height}p`;
+            }
+
+            handleNetworkError() {
+                this.hls.startLoad();
+                this.showError('Network error occurred. Retrying...');
+            }
+
+            handleMediaError() {
+                this.hls.recoverMediaError();
+                this.showError('Media error occurred. Recovering...');
+            }
+
+            showError(message) {
+                this.errorOverlay.querySelector('.error-message').textContent = message;
+                this.errorOverlay.style.display = 'flex';
+                this.statusDot.classList.remove('live');
+                this.statusText.textContent = 'Error';
+            }
+
+            destroy() {
+                if (this.hls) {
+                    this.hls.destroy();
+                    this.hls = null;
+                }
+            }
+        }
+
+        // 初始化播放器
+        let player;
+        function initPlayer() {
+            if (player) {
+                player.destroy();
+            }
+            
+            // 替换为你的HLS流地址
+            const hlsUrl = 'https://YOURIP:5000/hls/playlist.m3u8';
+            player = new HLSPlayer(
+                document.getElementById('videoPlayer'),
+                hlsUrl
+            );
+        }
+
+        // 页面加载完成后初始化播放器
+        window.addEventListener('load', initPlayer);
     </script>
 </body>
 </html>

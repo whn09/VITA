@@ -39,6 +39,7 @@ def get_args():
     parser.add_argument('--use_one_model', action='store_true', help='whether to use only one model')
     parser.add_argument('--use_sovits', action='store_true', help='whether to use GPT_SoVITS tts model')
     parser.add_argument('--use_kokoro', action='store_true', help='whether to use Kokoro-82M tts model')
+    parser.add_argument('--use_wav2lip', action='store_true', help='whether to use Wav2Lip to sync lip')
     args = parser.parse_args()
     print(args)
     return args
@@ -64,6 +65,7 @@ decoder_topk = 2
 codec_padding_size = 10
 target_sample_rate = 16000
 last_tts_model_id = 0
+chunk_num = 0
 
 IMAGE_TOKEN_INDEX = 51000
 AUDIO_TOKEN_INDEX = 51001
@@ -675,14 +677,14 @@ def load_model_streaming(
                 last_output_text = ''
                 while True:
                     request_outputs: List[RequestOutput] = llm.step()
-                    print('llm.step()')
+                    # print('llm.step()')
                     for request_output in request_outputs:
                         if request_output.request_id == request_id:
                             # First sentence mark
                             current_text = '$$FIRST_SENTENCE_MARK$$' + request_output.outputs[0].text
                             newly_generated_text = current_text[len(last_output_text):]
                             if newly_generated_text:
-                                print(newly_generated_text, end="", flush=True)
+                                # print(newly_generated_text, end="", flush=True)
                                 last_output_text = current_text
                                 
                                 # is_negative = judge_negative(newly_generated_text)
@@ -885,10 +887,13 @@ def tts_worker(
         speed=1.0
         cut_method=i18n("不切")
         ref_free = (prompt_text is None or len(prompt_text.strip()) == 0)
+        sys.path.remove(gpt_sovits_path)
+        sys.path.remove(os.path.join(gpt_sovits_path, 'GPT_SoVITS'))
+        print('Load GPT-SoVITS done')
     elif use_kokoro:
         import sys
         # 添加Kokoro项目路径到系统路径
-        kokoro_path = os.path.abspath("/home/ubuntu/Kokoro-82M")  # 替换为实际的GPT-SoVITS路径
+        kokoro_path = os.path.abspath("/home/ubuntu/Kokoro-82M")  # 替换为实际的Kokoro路径
         if kokoro_path not in sys.path:
             sys.path.append(kokoro_path)
         print('sys.path:', sys.path)
@@ -903,7 +908,9 @@ def tts_worker(
             'af_nicole', 'af_sky',
         ][0]
         VOICEPACK = torch.load(f'/home/ubuntu/Kokoro-82M/voices/{VOICE_NAME}.pt', weights_only=True).to(device)
+        sys.path.remove(kokoro_path)
         print(f'Loaded voice: {VOICE_NAME}')
+        print('Load Kokoro-82M done')
     else:
         llm_embedding = load_model_embemding(model_path).to(device)
         # os.system('nvidia-smi')
@@ -1235,7 +1242,7 @@ def handle_recording_stopped():
 
 @socketio.on('audio')
 def handle_audio(data):
-    global last_tts_model_id
+    global last_tts_model_id, chunk_num
     sid = request.sid
     if sid in connected_users:
         try:
@@ -1259,7 +1266,13 @@ def handle_audio(data):
                             socketio.emit('stop_tts', to=sid)
                         else:
                             print(f"Sid: {sid} Send TTS data")
-                            emit('audio', audio.tobytes())
+                            if args.use_wav2lip:
+                                audio_16k = librosa.resample(y=audio.astype(np.float32), orig_sr=24000, target_sr=16000)
+                                out_mp4_filename = process_chunk(wav2lip_model, full_frames, face_det_results, audio_16k, chunk_num, prefix='vita', fps=25, wav2lip_batch_size=8, static=False, img_size=96, sample_rate=16000, mel_step_size=16)
+                                print('out_mp4_filename:', out_mp4_filename)
+                                chunk_num += 1
+                            else:
+                                emit('audio', audio.tobytes())
 
                         last_tts_model_id = llm_id
                 except Empty:
@@ -1342,6 +1355,9 @@ atexit.register(cleanup_resources)
 if __name__ == "__main__":
     print("Start VITA server")
     
+    if not os.path.exists('temp'):
+        os.makedirs('temp')
+    
     # 1. 初始化多进程相关资源
     multiprocessing.set_start_method('spawn', force=True)
 
@@ -1383,6 +1399,24 @@ if __name__ == "__main__":
             "use_kokoro": args.use_kokoro,
         }
     )
+    
+    if args.use_wav2lip:
+        import sys
+        # 添加Wav2Lip项目路径到系统路径
+        wav2lip_path = os.path.abspath("/home/ubuntu/Wav2Lip")  # 替换为实际的Wav2Lip路径
+        if wav2lip_path not in sys.path:
+            sys.path.append(wav2lip_path)
+        print('sys.path:', sys.path)
+        import librosa
+        import importlib
+        inference_realtime = importlib.import_module('inference-realtime')
+        load_model_wav2lip = inference_realtime.load_model
+        get_faces = inference_realtime.get_faces
+        process_chunk = inference_realtime.process_chunk
+        full_frames, face_det_results = get_faces('/home/ubuntu/Wav2Lip/inputs/test.mp4', fps=25, resize_factor=1, rotate=False, crop=[0, -1, 0, -1], box=[-1, -1, -1, -1], static=False, img_size=96, face_det_batch_size=8, pads=[0, 10, 0, 0], nosmooth=False)
+        wav2lip_model = load_model_wav2lip('/home/ubuntu/Wav2Lip/checkpoints/wav2lip_gan.pth')
+        sys.path.remove(wav2lip_path)
+        print('Load Wav2Lip done')
     
     if args.use_one_model:
         llm_worker_2_ready.set()
