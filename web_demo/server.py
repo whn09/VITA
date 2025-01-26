@@ -906,7 +906,7 @@ def tts_worker(
             'af_bella', 'af_sarah', 'am_adam', 'am_michael',
             'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis',
             'af_nicole', 'af_sky',
-        ][0]
+        ][4]
         VOICEPACK = torch.load(f'/home/ubuntu/Kokoro-82M/voices/{VOICE_NAME}.pt', weights_only=True).to(device)
         sys.path.remove(kokoro_path)
         print(f'Loaded voice: {VOICE_NAME}')
@@ -1240,6 +1240,51 @@ def handle_recording_stopped():
         disconnect()
     print('Recording stopped')
 
+class ChunkProcessor:
+    def __init__(self):
+        self.chunk_num = 0
+        self.lock = threading.Lock()
+        self.processing = True
+        
+    def process_audio(self, audio):
+        try:
+            with self.lock:
+                current_chunk = self.chunk_num
+                self.chunk_num += 1
+                
+                print(f"开始处理chunk {current_chunk}")
+                start_time = time.time()
+                
+                audio_16k = librosa.resample(
+                    y=audio.astype(np.float32),
+                    orig_sr=24000,
+                    target_sr=16000
+                )
+                
+                out_mp4_filename = process_chunk(
+                    wav2lip_model,
+                    full_frames,
+                    face_det_results,
+                    audio_16k,
+                    current_chunk,
+                    prefix='vita',
+                    fps=25,
+                    wav2lip_batch_size=8,
+                    static=False,
+                    img_size=96,
+                    sample_rate=16000,
+                    mel_step_size=16
+                )
+                
+                process_time = time.time() - start_time
+                print(f"完成处理chunk {current_chunk}, 耗时: {process_time:.2f}秒")
+                
+                return out_mp4_filename
+                
+        except Exception as e:
+            print(f"处理chunk {current_chunk}时发生错误: {e}")
+            raise
+
 @socketio.on('audio')
 def handle_audio(data):
     global last_tts_model_id, chunk_num
@@ -1260,17 +1305,21 @@ def handle_audio(data):
                         llm_id = output_data["id"]
                         _, audio, length = output_data["response"]
 
-                        print(f"llm_id: {llm_id}, last_tts_model_id: {last_tts_model_id}")
+                        print(f"llm_id: {llm_id}, last_tts_model_id: {last_tts_model_id}, chunk_num: {chunk_num}, sid: {sid}")
                         if last_tts_model_id != 0 and last_tts_model_id != llm_id:
                             print(f"Received output from other process {llm_id}, last output tts model is {last_tts_model_id}, skipping...")
                             socketio.emit('stop_tts', to=sid)
                         else:
-                            print(f"Sid: {sid} Send TTS data")
+                            print(f"Sid: {sid} Send TTS data, chunk_num: {chunk_num}")
                             if args.use_wav2lip:
-                                audio_16k = librosa.resample(y=audio.astype(np.float32), orig_sr=24000, target_sr=16000)
-                                out_mp4_filename = process_chunk(wav2lip_model, full_frames, face_det_results, audio_16k, chunk_num, prefix='vita', fps=25, wav2lip_batch_size=8, static=False, img_size=96, sample_rate=16000, mel_step_size=16)
+                                try:
+                                    # chunk_num += 1
+                                    # audio_16k = librosa.resample(y=audio.astype(np.float32), orig_sr=24000, target_sr=16000)
+                                    # out_mp4_filename = process_chunk(wav2lip_model, full_frames, face_det_results, audio_16k, chunk_num, prefix=f'vita_{sid}', fps=25, wav2lip_batch_size=8, static=False, img_size=96, sample_rate=16000, mel_step_size=16)
+                                    out_mp4_filename = chunk_processor.process_audio(audio)
+                                except Exception as e:
+                                    print(f"音频处理错误: {e}")
                                 print('out_mp4_filename:', out_mp4_filename)
-                                chunk_num += 1
                             else:
                                 emit('audio', audio.tobytes())
 
@@ -1416,6 +1465,7 @@ if __name__ == "__main__":
         full_frames, face_det_results = get_faces('/home/ubuntu/Wav2Lip/inputs/test.mp4', fps=25, resize_factor=1, rotate=False, crop=[0, -1, 0, -1], box=[-1, -1, -1, -1], static=False, img_size=96, face_det_batch_size=8, pads=[0, 10, 0, 0], nosmooth=False)
         wav2lip_model = load_model_wav2lip('/home/ubuntu/Wav2Lip/checkpoints/wav2lip_gan.pth')
         sys.path.remove(wav2lip_path)
+        chunk_processor = ChunkProcessor()
         print('Load Wav2Lip done')
     
     if args.use_one_model:
