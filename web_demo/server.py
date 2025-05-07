@@ -28,6 +28,78 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
+import librosa
+from scipy import signal
+
+def convert_to_megatron_voice(audio_data, sample_rate=24000):
+    """
+    将普通语音转换为威震天风格的声音
+    
+    参数:
+        audio_data (numpy.ndarray): 输入音频数据，一维numpy数组
+        sample_rate (int): 音频的采样率，默认24000Hz
+        
+    返回:
+        numpy.ndarray: 处理后的威震天风格音频数据
+    """
+    # 确保输入是一维numpy数组
+    if not isinstance(audio_data, np.ndarray) or audio_data.ndim != 1:
+        raise ValueError("输入audio_data必须是一维numpy数组")
+    
+    # 步骤1: 降低音高
+    y_pitched = librosa.effects.pitch_shift(audio_data, sr=sample_rate, n_steps=-4)
+    
+    # 步骤2: 添加金属感（谐波失真）
+    def add_metallic_effect(y, gain=0.15):
+        y_harmonic = np.clip(y * gain, -1.0, 1.0)
+        y_effect = y + y_harmonic
+        return y_effect / np.max(np.abs(y_effect) + 1e-10)  # 避免除零错误
+    
+    y_metallic = add_metallic_effect(y_pitched)
+    
+    # 步骤3: 增强低频
+    def enhance_bass(y, sr):
+        nyquist = sr // 2
+        cutoff = 500 / nyquist
+        b, a = signal.butter(4, cutoff, 'low')
+        low_freq = signal.filtfilt(b, a, y)
+        y_enhanced = y + low_freq * 0.5
+        return y_enhanced / np.max(np.abs(y_enhanced) + 1e-10)
+    
+    y_enhanced = enhance_bass(y_metallic, sample_rate)
+    
+    # 步骤4: 添加机器人音效
+    def add_robotic_effect(y, sr):
+        mod_freq = 50  # 调制频率(Hz)
+        t = np.arange(0, len(y)) / sr
+        mod_signal = 0.2 * np.sin(2 * np.pi * mod_freq * t) + 1
+        y_robot = y * mod_signal
+        return y_robot / np.max(np.abs(y_robot) + 1e-10)
+    
+    y_robotic = add_robotic_effect(y_enhanced, sample_rate)
+    
+    # 步骤5: 添加失真效果
+    def add_distortion(y, gain=2.0):
+        y_distorted = np.clip(y * gain, -0.8, 0.8)
+        return y_distorted / np.max(np.abs(y_distorted) + 1e-10)
+    
+    y_distorted = add_distortion(y_robotic)
+    
+    # 步骤6: 添加轻微混响效果
+    def add_reverb(y, sr, decay=0.6):
+        delay_samples = int(sr * 0.05)  # 50ms延迟
+        reverb = np.zeros_like(y)
+        reverb[delay_samples:] = y[:-delay_samples] * decay
+        y_reverb = y + reverb * 0.3
+        return y_reverb / np.max(np.abs(y_reverb) + 1e-10)
+    
+    y_reverb = add_reverb(y_distorted, sample_rate)
+    
+    # 归一化输出音量
+    y_final = y_reverb / np.max(np.abs(y_reverb) + 1e-10)
+    
+    return y_final
+
 def get_args():
     parser = argparse.ArgumentParser(description='VITA')
     parser.add_argument('--model_path', help='model_path to load', default='../VITA_ckpt')
@@ -39,7 +111,9 @@ def get_args():
     parser.add_argument('--use_one_model', action='store_true', help='whether to use only one model')
     parser.add_argument('--use_sovits', action='store_true', help='whether to use GPT_SoVITS tts model')
     parser.add_argument('--use_kokoro', action='store_true', help='whether to use Kokoro-82M tts model')
+    parser.add_argument('--use_kokoro_v1', action='store_true', help='whether to use Kokoro-82M v1.0 tts model')
     parser.add_argument('--use_wav2lip', action='store_true', help='whether to use Wav2Lip to sync lip')
+    parser.add_argument('--use_weizhentian', action='store_true', help='whether to use weishentian voice, must use with --use_kokoro_v1')
     args = parser.parse_args()
     print(args)
     return args
@@ -744,7 +818,9 @@ def tts_worker(
     worker_ready,
     wait_workers_ready,
     use_sovits=False,
-    use_kokoro=False
+    use_kokoro=False,
+    use_kokoro_v1=False,
+    use_weizhentian=False
 ):  
     def audio_file_to_html(audio_file: str) -> str:
         """
@@ -911,6 +987,15 @@ def tts_worker(
         sys.path.remove(kokoro_path)
         print(f'Loaded voice: {VOICE_NAME}')
         print('Load Kokoro-82M done')
+    elif use_kokoro_v1:
+        from kokoro import KPipeline
+        pipeline = KPipeline(lang_code='z')
+        VOICE_NAME = [
+            'zf_xiaobei', 'zf_xiaoni', 'zf_xiaoxiao', 'zf_xiaoyi',
+            'zm_yunjian', 'zm_yunxi', 'zm_yunxia', 'zm_yunyang',
+        ][4]
+        print(f'Loaded voice: {VOICE_NAME}')
+        print('Load Kokoro-82M v1.0 done')
     else:
         llm_embedding = load_model_embemding(model_path).to(device)
         # os.system('nvidia-smi')
@@ -1012,6 +1097,22 @@ def tts_worker(
             audio_duration = audio_data.shape[-1]/sampling_rate
             if past_llm_id == 0 or past_llm_id == llm_id:
                 outputs_queue.put({"id": llm_id, "response": (tts_input_text, audio_data, audio_duration)})
+        elif use_kokoro_v1:
+            sampling_rate = 24000
+            generator = pipeline(tts_input_text, voice=VOICE_NAME)
+            for i, (gs, ps, audio) in enumerate(generator):
+                # print(i, gs, ps)
+                # display(Audio(data=audio, rate=24000, autoplay=i==0))
+                # sf.write(f'{i}.wav', audio, 24000)
+                if use_weizhentian:
+                    audio = convert_to_megatron_voice(audio.detach().numpy(), sample_rate=sampling_rate)
+                audio_data = (audio * 32768.0).astype(np.int16)
+                # 处理每个生成的音频片段
+                # print('sampling_rate:', sampling_rate)
+                # print('audio_data:', np.max(audio_data), np.min(audio_data), np.mean(audio_data))
+                audio_duration = audio_data.shape[-1]/sampling_rate
+                if past_llm_id == 0 or past_llm_id == llm_id:
+                    outputs_queue.put({"id": llm_id, "response": (tts_input_text, audio_data, audio_duration)})
         else:
             embeddings = llm_embedding(torch.tensor(tokenizer.encode(tts_input_text)).to(device))
             for seg in tts.run(embeddings.reshape(-1, 896).unsqueeze(0), decoder_topk,
@@ -1446,6 +1547,8 @@ if __name__ == "__main__":
             "wait_workers_ready": [llm_worker_1_ready, llm_worker_2_ready], 
             "use_sovits": args.use_sovits,
             "use_kokoro": args.use_kokoro,
+            "use_kokoro_v1": args.use_kokoro_v1,
+            "use_weizhentian": args.use_weizhentian
         }
     )
     
