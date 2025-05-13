@@ -1104,8 +1104,9 @@ def tts_worker(
                 # print(i, gs, ps)
                 # display(Audio(data=audio, rate=24000, autoplay=i==0))
                 # sf.write(f'{i}.wav', audio, 24000)
+                audio = audio.detach().numpy()
                 if use_weizhentian:
-                    audio = convert_to_megatron_voice(audio.detach().numpy(), sample_rate=sampling_rate)
+                    audio = convert_to_megatron_voice(audio, sample_rate=sampling_rate)
                 audio_data = (audio * 32768.0).astype(np.int16)
                 # 处理每个生成的音频片段
                 # print('sampling_rate:', sampling_rate)
