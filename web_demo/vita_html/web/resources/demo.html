@@ -118,7 +118,8 @@
 
         .output-video-container {
             position: relative;
-            width: 30%;
+            /* width: 30%; */
+            width: 720px;
             max-width: 1000px;
             margin: 20px auto;
             background: #000;
@@ -130,7 +131,7 @@
         .video-wrapper {
             position: relative;
             width: 100%;
-            aspect-ratio: 9/16;
+            aspect-ratio: 1/1; /*9/16;*/
         }
 
         #videoPlayer {
@@ -253,20 +254,6 @@
         <div class="clear-history-row">
             <button id="clearHistoryButton">Clear History</button>
         </div>
-        <h3 style="margin: 0 0;">Input Video</h3>
-        <div class="video-container" style="margin: 0 0;">
-            <video id="videoElement" autoplay playsinline style="display: none;"></video>
-            <canvas id="videoCanvas" width="600" height="360"></canvas>
-            <canvas id="hiddenCanvas" width="1280" height="768" style="display: none;"></canvas>
-        </div>
-        <h3 style="margin: 0 0;">Input Waveform</h3>
-        <canvas id="inputCanvas" width="600" height="50"></canvas>
-        <h3 style="margin: 0 0;">Output Waveform</h3>
-        <canvas id="outputCanvas" width="600" height="50"></canvas>
-        <audio id="remoteAudio" autoplay playsinline></audio>
-        <div id="alertBox" class="alert">Too many users connected. Please refresh and try again.</div>
-        <div id="alertBox2" class="alert">Connect time out. Please refresh and reconnect.</div>
-        <div id="alertBox3" class="alert">Prompt set success.</div>
         <h3 style="margin: 0 0;">Output Video</h3>
         <div class="output-video-container">
             <div class="video-wrapper">
@@ -290,7 +277,21 @@
                     <button class="retry-button" onclick="initPlayer()">Retry</button>
                 </div>
             </div>
-        </div>    
+        </div>  
+        <h3 style="margin: 0 0;">Input Video</h3>
+        <div class="video-container" style="margin: 0 0;">
+            <video id="videoElement" autoplay playsinline style="display: none;"></video>
+            <canvas id="videoCanvas" width="600" height="360"></canvas>
+            <canvas id="hiddenCanvas" width="1280" height="768" style="display: none;"></canvas>
+        </div>
+        <h3 style="margin: 0 0;">Input Waveform</h3>
+        <canvas id="inputCanvas" width="600" height="50"></canvas>
+        <h3 style="margin: 0 0;">Output Waveform</h3>
+        <canvas id="outputCanvas" width="600" height="50"></canvas>
+        <audio id="remoteAudio" autoplay playsinline></audio>
+        <div id="alertBox" class="alert">Too many users connected. Please refresh and try again.</div>
+        <div id="alertBox2" class="alert">Connect time out. Please refresh and reconnect.</div>
+        <div id="alertBox3" class="alert">Prompt set success.</div>  
     </div>
     <script>
         const remoteAudio = document.getElementById('remoteAudio');
@@ -806,7 +807,7 @@
             }
             
             // 替换为你的HLS流地址
-            const hlsUrl = 'https://YOURIP:5000/hls/playlist.m3u8';
+            const hlsUrl = 'https://YOUR_IP:5000/hls/playlist.m3u8';
             player = new HLSPlayer(
                 document.getElementById('videoPlayer'),
                 hlsUrl

@@ -113,6 +113,7 @@ def get_args():
     parser.add_argument('--use_kokoro', action='store_true', help='whether to use Kokoro-82M tts model')
     parser.add_argument('--use_kokoro_v1', action='store_true', help='whether to use Kokoro-82M v1.0 tts model')
     parser.add_argument('--use_wav2lip', action='store_true', help='whether to use Wav2Lip to sync lip')
+    parser.add_argument('--use_wav2lip_256', action='store_true', help='whether to use Wav2Lip_256 to sync lip')
     parser.add_argument('--use_weizhentian', action='store_true', help='whether to use weishentian voice, must use with --use_kokoro_v1')
     args = parser.parse_args()
     print(args)
@@ -1343,10 +1344,11 @@ def handle_recording_stopped():
     print('Recording stopped')
 
 class ChunkProcessor:
-    def __init__(self):
+    def __init__(self, img_size=96):
         self.chunk_num = 0
         self.lock = threading.Lock()
         self.processing = True
+        self.img_size = img_size
         
     def process_audio(self, audio):
         try:
@@ -1373,7 +1375,7 @@ class ChunkProcessor:
                     fps=25,
                     wav2lip_batch_size=8,
                     static=False,
-                    img_size=96,
+                    img_size=self.img_size,
                     sample_rate=16000,
                     mel_step_size=16
                 )
@@ -1413,7 +1415,7 @@ def handle_audio(data):
                             socketio.emit('stop_tts', to=sid)
                         else:
                             print(f"Sid: {sid} Send TTS data, chunk_num: {chunk_num}")
-                            if args.use_wav2lip:
+                            if args.use_wav2lip or args.use_wav2lip_256:
                                 try:
                                     # chunk_num += 1
                                     # audio_16k = librosa.resample(y=audio.astype(np.float32), orig_sr=24000, target_sr=16000)
@@ -1569,7 +1571,25 @@ if __name__ == "__main__":
         full_frames, face_det_results = get_faces('/home/ubuntu/Wav2Lip/inputs/test.mp4', fps=25, resize_factor=1, rotate=False, crop=[0, -1, 0, -1], box=[-1, -1, -1, -1], static=False, img_size=96, face_det_batch_size=8, pads=[0, 10, 0, 0], nosmooth=False)
         wav2lip_model = load_model_wav2lip('/home/ubuntu/Wav2Lip/checkpoints/wav2lip_gan.pth')
         sys.path.remove(wav2lip_path)
-        chunk_processor = ChunkProcessor()
+        chunk_processor = ChunkProcessor(img_size=96)
+        print('Load Wav2Lip done')
+    elif args.use_wav2lip_256:
+        import sys
+        # 添加Wav2Lip项目路径到系统路径
+        wav2lip_path = os.path.abspath("/home/ubuntu/wav2lip_256")  # 替换为实际的Wav2Lip路径
+        if wav2lip_path not in sys.path:
+            sys.path.append(wav2lip_path)
+        print('sys.path:', sys.path)
+        import librosa
+        import importlib
+        inference_realtime = importlib.import_module('inference-realtime')
+        load_model_wav2lip = inference_realtime.load_model
+        get_faces = inference_realtime.get_faces
+        process_chunk = inference_realtime.process_chunk
+        full_frames, face_det_results = get_faces('/home/ubuntu/wav2lip_256/male.jpg', fps=25, resize_factor=1, rotate=False, crop=[0, -1, 0, -1], box=[-1, -1, -1, -1], static=False, img_size=256, face_det_batch_size=8, pads=[0, 10, 0, 0], nosmooth=False)
+        wav2lip_model = load_model_wav2lip('/home/ubuntu/wav2lip_256/wav2lip.pth')
+        sys.path.remove(wav2lip_path)
+        chunk_processor = ChunkProcessor(img_size=256)
         print('Load Wav2Lip done')
     
     if args.use_one_model:
